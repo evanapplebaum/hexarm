@@ -1,0 +1,72 @@
+# ─── CAD Tools ───────────────────────────────────────────────────────────────
+
+# Fusion 360
+*.f3d
+*.f3z
+*.log
+autosave/
+
+# Onshape — cloud-based, so no local files to ignore
+
+# SolidWorks
+*.sldprt
+*.sldasm
+*.slddrw
+*.swp
+*.swb
+*.sldrep
+
+# FreeCAD
+*.FCBak
+
+# KiCad backup files
+*-backups/
+*.kicad_pcb-bak
+*.sch-bak
+
+# ─── OS & Editor ─────────────────────────────────────────────────────────────
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverrideIcon
+
+# Windows
+Thumbs.db
+desktop.ini
+
+# VS Code
+.vscode/
+!.vscode/extensions.json
+
+# JetBrains
+.idea/
+
+# ─── Python ──────────────────────────────────────────────────────────────────
+
+__pycache__/
+*.py[cod]
+*.egg-info/
+.venv/
+venv/
+dist/
+build/
+
+# ─── Firmware / Embedded ─────────────────────────────────────────────────────
+
+# Arduino build artifacts
+build/
+*.elf
+*.hex
+*.bin
+*.map
+
+# PlatformIO
+.pio/
+.pioenvs/
+
+# ─── Misc ────────────────────────────────────────────────────────────────────
+
+*.tmp
+*.bak
+*.swp
