@@ -9,6 +9,7 @@
 # =============================================================================
 
 set -e
+export GH_PAGER=cat   # never open a pager mid-script
 
 OWNER="${1:?Usage: $0 <github-username>}"
 REPO="hexarm"
@@ -42,32 +43,32 @@ echo "--- Creating milestones ---"
 gh api "repos/$R/milestones" --method POST \
   --field title="M1: CAD Complete" \
   --field description="All individual parts and full assembly modeled in Onshape. STLs exported." \
-  --field due_on="2026-05-31T07:00:00Z"
+  --field due_on="2026-05-31T07:00:00Z" || echo "(M1 already exists, skipping)"
 
 gh api "repos/$R/milestones" --method POST \
   --field title="M2: Electronics & BOM" \
   --field description="Power budget, wiring schematic, and full bill of materials complete. Controller and comms architecture decided." \
-  --field due_on="2026-06-21T07:00:00Z"
+  --field due_on="2026-06-21T07:00:00Z" || echo "(M2 already exists, skipping)"
 
 gh api "repos/$R/milestones" --method POST \
   --field title="M3: Firmware — Servo Control" \
   --field description="ST3215 driver complete. Individual servos controllable by position. Calibration routine working." \
-  --field due_on="2026-07-12T07:00:00Z"
+  --field due_on="2026-07-12T07:00:00Z" || echo "(M3 already exists, skipping)"
 
 gh api "repos/$R/milestones" --method POST \
   --field title="M4: Software — Kinematics" \
   --field description="FK and IK implemented and validated. URDF model created and tested in simulation." \
-  --field due_on="2026-08-02T07:00:00Z"
+  --field due_on="2026-08-02T07:00:00Z" || echo "(M4 already exists, skipping)"
 
 gh api "repos/$R/milestones" --method POST \
   --field title="M5: Physical Build & Integration" \
   --field description="Both arms assembled and wired. End-to-end position control working on real hardware." \
-  --field due_on="2026-08-30T07:00:00Z"
+  --field due_on="2026-08-30T07:00:00Z" || echo "(M5 already exists, skipping)"
 
 gh api "repos/$R/milestones" --method POST \
   --field title="M6: Teleoperation Demo" \
   --field description="Leader-follower teleoperation working. Safety limits in place. Demo video recorded." \
-  --field due_on="2026-09-20T07:00:00Z"
+  --field due_on="2026-09-20T07:00:00Z" || echo "(M6 already exists, skipping)"
 
 echo "Milestones created."
 echo ""
