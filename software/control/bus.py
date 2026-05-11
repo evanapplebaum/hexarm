@@ -2,7 +2,7 @@
 # Bus connection, setup, and diagnostic helpers for hexarm.
 # Import this module — do not run directly.
 
-from lerobot.motors.feetech import FeetechMotorsBus
+from lerobot.motors.feetech.feetech import FeetechMotorsBus
 from config import (
     LEADER_MOTORS, FOLLOWER_MOTORS,
     LEADER_PORT, FOLLOWER_PORT,
