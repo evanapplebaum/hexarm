@@ -30,18 +30,20 @@ The project lives at: `github.com/evanapplebaum/hexarm`
 - **Modes:** Servo mode (position) or motor mode (continuous rotation)
 - All servos daisy-chained on one bus, addressed by unique ID
 
-### Servo Driver Board — Waveshare Serial Bus Servo Driver
-- Bridges USB (host) → TTL half-duplex serial (servos)
-- Handles bus direction switching and power distribution
-- Appears as `/dev/ttyUSB0` (or similar) on the host
+### Servo Driver Board — UeeKKoo Serial Bus Servo Driver (×2)
+- **2 boards total — one per arm** (leader bus and follower bus are fully independent)
+- Integrates servo power supply and half-duplex bus direction control
+- **Dual host interfaces:** USB (appears as `/dev/ttyUSB0` or `/dev/tty.usbserial-XXXX`) and UART GPIO pins — either works
+- Supports ST/SC series servos; explicitly compatible with ST3215
+- Addresses up to 253 servos per bus
+- USB interface allows direct control from Mac or Pi without a separate USB-UART adapter
 
-### Compute — Raspberry Pi 5
-- **Hostname:** `eka-pi5`
-- **User:** `ekapi`
-- **OS:** Ubuntu Server 24.04.4 LTS (64-bit, aarch64)
-- **Network:** Home guest WiFi (SSH confirmed working)
-- **IP:** 192.168.86.123 (DHCP — may change)
-- SSH access: `ssh ekapi@eka-pi5.local`
+### Compute — Raspberry Pi Zero 2W
+- **OS:** to be confirmed
+- **Network:** to be confirmed
+- **Connection to driver boards:** Each UeeKKoo board connects via USB → Pi sees them as `/dev/ttyUSB0` and `/dev/ttyUSB1` (or similar)
+  - USB avoids Pi 02W UART count constraints entirely
+  - Alternatively: boards expose GPIO UART pins if USB is unavailable
 
 ### Vision (planned)
 - Wrist-mounted (eye-in-hand) camera and/or overhead workspace camera
@@ -80,12 +82,12 @@ Deploy on hardware
 
 | Task | Status |
 |---|---|
-| Pi 5 flashed with Ubuntu 24.04 | ✅ Done |
-| System updated | ✅ Done |
 | LeRobot 0.5.2 installed | ✅ Done |
 | Feetech motor drivers verified | ✅ Done |
-| Waveshare board connected | ⏳ Awaiting hardware |
-| Servo IDs assigned (1–6 per arm) | ⏳ Awaiting hardware |
+| Pi Zero 2W setup | ⏳ Todo |
+| Driver board connected to Pi | ⏳ Awaiting hardware |
+| config.py updated for Pi 02W UART ports | ⏳ Todo |
+| Servo IDs assigned (1–6 leader, 7–12 follower) | ⏳ Awaiting hardware |
 | Bus communication test (ping 12 servos) | ⏳ Awaiting hardware |
 | LeRobot arm config file | ⏳ Todo |
 | First teleoperation test | ⏳ Todo |
@@ -97,16 +99,16 @@ Deploy on hardware
 ## Key Technical Notes
 
 ### Half-Duplex Bus Timing
-The STS3215 uses half-duplex UART. TX and RX share one wire — the driver board switches a direction pin between transmit and receive. Sequence per transaction:
-1. Host drives bus → sends command packet
-2. Host releases bus (switches to RX)
+The STS3215 uses half-duplex UART — TX and RX share one physical wire on the servo side. The UeeKKoo driver board handles bus direction switching internally; the host just uses a standard full-duplex serial interface (USB or UART). Sequence per transaction:
+1. Host sends command packet → board drives bus
+2. Board switches to receive
 3. Addressed servo replies
 4. Servo releases bus
 
-Timing between host releasing and servo replying is critical. All other servos see the packet but ignore it (addressed by ID).
+All other servos on the bus see every packet but ignore ones not addressed to their ID. Timing between the board releasing and the servo replying is handled by the board's direction-switching circuit.
 
 ### Servo IDs
-Each servo needs a unique ID (1–6 per arm) programmed via the Waveshare board before LeRobot can address them. This is a required first step when hardware arrives.
+Each servo needs a unique ID programmed before LeRobot can address them. Current plan: leader IDs 1–6, follower IDs 7–12. IDs are stored in EPROM (requires unlock/lock sequence to write). This is a required first step when hardware arrives — can be done via the ST3215 driver board + a script using `scservo_sdk` or a short Arduino sketch.
 
 ### LeRobot Virtual Environment
 Always activate before running anything:
@@ -133,12 +135,15 @@ source ~/lerobot-env/bin/activate
 
 ## Open Questions / Next Steps
 
-- [ ] Confirm ROS2 integration plan (standalone LeRobot vs. ROS2 nodes)
-- [ ] Decide on camera hardware
-- [ ] Assign servo IDs when Waveshare board arrives
+- [ ] Set up Pi Zero 2W (OS, networking, LeRobot install)
+- [ ] Confirm second UART availability on Pi 02W (mini-UART vs overlay vs USB adapter)
+- [ ] Update config.py with correct Pi 02W UART port paths
+- [ ] Assign servo IDs when driver board arrives
 - [ ] Write/configure LeRobot arm config file for hexarm (based on SO-100 config)
 - [ ] First end-to-end teleoperation test
+- [ ] Confirm ROS2 integration plan (standalone LeRobot vs. ROS2 nodes)
+- [ ] Decide on camera hardware
 
 ---
 
-*Last updated: May 2026*
+*Last updated: May 16, 2026*
