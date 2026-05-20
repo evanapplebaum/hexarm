@@ -35,6 +35,9 @@ autosave/
 Thumbs.db
 desktop.ini
 
+# Office temp files (Excel/Word lock files created while doc is open)
+~$*
+
 # VS Code
 .vscode/
 !.vscode/extensions.json
