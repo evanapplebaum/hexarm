@@ -16,6 +16,10 @@ Unit is 2us per count. Use this to give the host's UART time to switch from
 TX to RX direction before the servo response arrives. Recommended: 30 (= 60us).
 See docs/debugging/ for the direction-switching timing analysis.
 
+--force flag: skips the initial ping and uses broadcast ID (0xFE) for all writes.
+Use this when the SDK cannot read a full status packet due to direction-switching
+timing issues (i.e. return delay has not been set yet). ONE servo on bus only.
+
 Workflow (repeat for each servo):
   1. Connect one servo to the Waveshare board (power + data)
   2. Run this script with --new-id <target_id> [--return-delay <units>]
@@ -26,6 +30,7 @@ Usage (Pi, run from repo root):
     python3 software/control/setup_servo.py --new-id 2
     python3 software/control/setup_servo.py --new-id 2 --return-delay 30
     python3 software/control/setup_servo.py --current-id 5 --return-delay 30  # delay only, no ID change
+    python3 software/control/setup_servo.py --current-id 9 --return-delay 30 --force  # skip ping, use broadcast
 
 ID assignments for hexarm:
     Leader arm:   1, 2, 3, 4, 5, 6   (base -> tip)
@@ -81,6 +86,10 @@ Examples:
                         help=f"Serial port (default: {DEFAULT_PORT})")
     parser.add_argument("--baud",         type=int, default=DEFAULT_BAUD,
                         help=f"Baud rate (default: {DEFAULT_BAUD})")
+    parser.add_argument("--force",        action="store_true",
+                        help="Skip ping verification and use broadcast ID (0xFE) for all writes. "
+                             "Use when return delay is not yet set and SDK cannot read status packets. "
+                             "ONE servo on bus only.")
     args = parser.parse_args()
 
     # Resolve target ID (what the servo will be after this script)
@@ -120,76 +129,89 @@ Examples:
         port_handler.closePort()
         sys.exit(1)
 
-    # --- step 1: ping to confirm servo is present ---
-    print(f"Step 1 — Pinging ID {args.current_id}...")
-    model_number, result, error = st.ping(args.current_id)
+    # In --force mode, all writes go to broadcast ID (0xFE).
+    # Servo acts on broadcast packets but sends no response — no ACK checking.
+    # Use when return delay is not yet set and SDK cannot parse status packets.
+    write_id = 0xFE if args.force else args.current_id
 
-    if result != COMM_SUCCESS:
-        print(f"  x No response from ID {args.current_id}.")
-        print(f"    {st.getTxRxResult(result)}")
-        print("\n  Possible causes:")
-        print("  - More than one servo connected (ID collision)")
-        print("  - Servo already has a different ID -- use --current-id to specify it")
-        print("  - Wiring issue or board not powered")
-        port_handler.closePort()
-        sys.exit(1)
+    # --- step 1: ping (skipped in --force mode) ---
+    if args.force:
+        print("Step 1 — Skipping ping (--force mode). Ensure exactly ONE servo is on the bus.")
+    else:
+        print(f"Step 1 — Pinging ID {args.current_id}...")
+        model_number, result, error = st.ping(args.current_id)
 
-    print(f"  + Servo present -- model: {model_number}")
+        if result != COMM_SUCCESS:
+            print(f"  x No response from ID {args.current_id}.")
+            print(f"    {st.getTxRxResult(result)}")
+            print("\n  Possible causes:")
+            print("  - More than one servo connected (ID collision)")
+            print("  - Servo already has a different ID -- use --current-id to specify it")
+            print("  - Wiring issue or board not powered")
+            print("  - Return delay not set yet -- retry with --force to skip ping")
+            port_handler.closePort()
+            sys.exit(1)
+
+        print(f"  + Servo present -- model: {model_number}")
 
     # --- step 2: unlock EPROM ---
-    print(f"Step 2 — Unlocking EPROM on ID {args.current_id}...")
-    result, error = st.unLockEprom(args.current_id)
+    print(f"Step 2 — Unlocking EPROM (ID {write_id:#04x})...")
+    result, error = st.unLockEprom(write_id)
 
-    if result != COMM_SUCCESS:
+    if not args.force and result != COMM_SUCCESS:
         print(f"  x EPROM unlock failed: {st.getTxRxResult(result)}")
         port_handler.closePort()
         sys.exit(1)
 
-    print("  + EPROM unlocked")
+    print("  + EPROM unlock sent")
 
     # --- step 3a: write new ID (if changing) ---
     if change_id:
-        print(f"Step 3a — Writing new ID {target_id} to register {REG_ID}...")
-        result, error = st.write1ByteTxRx(args.current_id, REG_ID, target_id)
-        if result != COMM_SUCCESS:
+        print(f"Step 3a — Writing new ID {target_id} to register {REG_ID} (ID {write_id:#04x})...")
+        result, error = st.write1ByteTxRx(write_id, REG_ID, target_id)
+        if not args.force and result != COMM_SUCCESS:
             print(f"  x ID write failed: {st.getTxRxResult(result)}")
-            st.LockEprom(args.current_id)
+            st.LockEprom(write_id)
             port_handler.closePort()
             sys.exit(1)
-        print(f"  + ID written (servo now responds to ID {target_id})")
+        print(f"  + ID write sent")
 
     # --- step 3b: write return delay (if requested) ---
     if args.return_delay is not None:
-        print(f"Step 3b — Writing return delay {args.return_delay} ({args.return_delay * 2}us) to register {REG_RETURN_DELAY}...")
-        result, error = st.write1ByteTxRx(target_id, REG_RETURN_DELAY, args.return_delay)
-        if result != COMM_SUCCESS:
+        print(f"Step 3b — Writing return delay {args.return_delay} ({args.return_delay * 2}us) to register {REG_RETURN_DELAY} (ID {write_id:#04x})...")
+        result, error = st.write1ByteTxRx(write_id, REG_RETURN_DELAY, args.return_delay)
+        if not args.force and result != COMM_SUCCESS:
             print(f"  x Return delay write failed: {st.getTxRxResult(result)}")
-            st.LockEprom(target_id)
+            st.LockEprom(write_id)
             port_handler.closePort()
             sys.exit(1)
-        print(f"  + Return delay written")
+        print(f"  + Return delay write sent")
 
     # --- step 4: lock EPROM ---
-    print(f"Step 4 — Locking EPROM on ID {target_id}...")
-    result, error = st.LockEprom(target_id)
+    print(f"Step 4 — Locking EPROM (ID {write_id:#04x})...")
+    result, error = st.LockEprom(write_id)
 
-    if result != COMM_SUCCESS:
+    if not args.force and result != COMM_SUCCESS:
         print(f"  x EPROM lock failed: {st.getTxRxResult(result)}")
         print(f"    WARNING: EPROM is unlocked. Power-cycle the servo to re-lock automatically.")
         port_handler.closePort()
         sys.exit(1)
 
-    print("  + EPROM locked")
+    print("  + EPROM lock sent")
 
-    # --- verify: ping the target ID ---
-    print(f"\nVerifying -- pinging ID {target_id}...")
-    model_number, result, error = st.ping(target_id)
-
-    if result == COMM_SUCCESS:
-        print(f"  + SUCCESS -- Servo responds as ID {target_id}")
+    if args.force:
+        print(f"\nForce mode -- no verification possible. Power-cycle the servo, then")
+        print(f"re-run without --force to confirm settings took effect.")
     else:
-        print(f"  x No response on ID {target_id}")
-        print(f"    {st.getTxRxResult(result)}")
+        # --- verify: ping the target ID ---
+        print(f"\nVerifying -- pinging ID {target_id}...")
+        model_number, result, error = st.ping(target_id)
+
+        if result == COMM_SUCCESS:
+            print(f"  + SUCCESS -- Servo responds as ID {target_id}")
+        else:
+            print(f"  x No response on ID {target_id}")
+            print(f"    {st.getTxRxResult(result)}")
 
     port_handler.closePort()
     print()
