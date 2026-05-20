@@ -5,13 +5,16 @@ ping_one.py
 First-contact test for a single STS3215 servo via scservo_sdk.
 Pings servo ID 1 and prints whether it responded.
 
-Usage (run from project root):
-    python software/control/ping_one.py --port /dev/tty.usbmodem5B141112771
-    python software/control/ping_one.py --port /dev/tty.usbmodem5B141112771 --id 1 --baud 1000000
+Usage (Pi via UART, run from repo root):
+    python software/control/ping_one.py --port /dev/ttyAMA0
+    python software/control/ping_one.py --port /dev/ttyAMA0 --id 1 --baud 1000000
+Usage (Mac via USB Waveshare board):
+    python software/control/ping_one.py --port /dev/cu.usbmodem5B141112771
 
 Requirements:
-    - scservo_sdk copied into software/ (no pip install needed)
+    - scservo_sdk present at software/scservo_sdk/ (not a pip package — local folder)
     - pyserial: pip install pyserial
+    - Run from repo root so sys.path resolves correctly, OR from software/control/
 """
 
 import sys
@@ -24,7 +27,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from scservo_sdk import PortHandler, sms_sts, COMM_SUCCESS
 
 # --- defaults ---
-DEFAULT_PORT  = "/dev/tty.usbmodem5B141112771"  # UeeKKoo driver board on Mac
+DEFAULT_PORT  = "/dev/ttyAMA0"   # Pi UART — override with --port /dev/cu.usbmodem* for Mac
 DEFAULT_ID    = 1
 DEFAULT_BAUD  = 1000000  # factory default for STS3215
 

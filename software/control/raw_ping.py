@@ -5,8 +5,10 @@ raw_ping.py
 Sends a raw PING packet directly over serial and prints whatever bytes come back.
 Bypasses the SDK entirely — purely for diagnosing the hardware path.
 
-Usage:
-    python software/control/raw_ping.py --port /dev/cu.usbmodem5B141112771 --id 7
+Usage (Pi via UART):
+    python software/control/raw_ping.py --port /dev/ttyAMA0 --id 1
+Usage (Mac via USB Waveshare board):
+    python software/control/raw_ping.py --port /dev/cu.usbmodem5B141112771 --id 1
 """
 
 import serial
@@ -22,8 +24,10 @@ def ping_packet(servo_id):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", default="/dev/cu.usbmodem5B141112771")
-    parser.add_argument("--id",   default=7, type=int)
+    parser.add_argument("--port", default="/dev/ttyAMA0",
+                        help="Serial port. Pi UART: /dev/ttyAMA0  Mac USB: /dev/cu.usbmodem*")
+    parser.add_argument("--id",   default=1, type=int,
+                        help="Servo ID to ping (factory default = 1)")
     parser.add_argument("--baud", default=1000000, type=int)
     args = parser.parse_args()
 
