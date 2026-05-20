@@ -69,33 +69,73 @@ GitHub: `github.com/evanapplebaum/hexarm`
 ```
 hexarm/
 ├── docs/
-│   ├── context.md              ← this file
-│   └── ...
+│   ├── context.md                      ← this file (AI handoff doc)
+│   ├── kinematics.md                   ← kinematics notes and derivations
+│   ├── images/
+│   └── documentation/                  ← datasheets and manuals
+│       ├── ST3215 Communication Manual.pdf
+│       ├── ST3215-general-manual.pdf
+│       ├── Servo-bus-schematic.pdf
+│       └── sts3215_memory_table.xlsx
+├── cad/
+│   ├── assembly/
+│   ├── exports/
+│   ├── parts/
+│   └── renders/
+├── electronics/
+│   ├── bom/
+│   └── schematics/
+│       └── Raspberry Pi 5 Pinout.png   ← NOTE: outdated, project uses Pi Zero 2W
+├── firmware/
+│   ├── tools/
+│   │   └── set_baud_115200/
+│   │       └── set_baud_115200.ino     ← Arduino one-shot: changes servo baud 1Mbps→115200
+│   ├── lib/
+│   └── src/
+├── scripts/
+│   └── setup-github.sh
+├── simulation/
+│   └── urdf/
 ├── software/
-│   ├── control/                ← host-side Python scripts
-│   │   ├── ping_one.py         ← first-contact servo ping (CLI: --port, --id, --baud)
-│   │   ├── raw_ping.py         ← raw serial diagnostic (bypasses SDK entirely)
-│   │   ├── baud_scan.py        ← scans all baud rates × IDs 1–20 for any response
-│   │   ├── calibrate.py
-│   │   ├── teleop.py
-│   │   └── ...
-│   ├── scservo_sdk/            ← Feetech official SDK (copied from ftservo/FTServo_Python)
-│   │   ├── protocol_packet_handler.py  ← packet framing/parsing (UNMODIFIED — see debug notes)
-│   │   ├── sms_sts.py          ← STS/SMS series class (correct for STS3215)
+│   ├── control/                        ← host-side Python scripts (run from repo root)
+│   │   ├── ping_one.py                 ← ping a single servo (CLI: --port, --id, --baud)
+│   │   ├── raw_ping.py                 ← raw pyserial diagnostic, bypasses SDK entirely
+│   │   ├── baud_scan.py                ← scans all baud rates × IDs 1–20 for any response
+│   │   ├── bus.py                      ← LeRobot FeetechMotorsBus connection helpers (Pi only)
+│   │   ├── config.py                   ← motor IDs, port assignments, joint names
+│   │   ├── calibrate.py                ← joint limit calibration (move to min/max, saves JSON)
+│   │   └── teleop.py
+│   ├── scservo_sdk/                    ← Feetech official SDK (NOT a pip package — local copy)
+│   │   ├── protocol_packet_handler.py  ← packet framing/parsing (keep UNMODIFIED — see debug notes)
+│   │   ├── sms_sts.py                  ← STS/SMS series class (correct for STS3215)
 │   │   ├── port_handler.py
 │   │   └── ...
-│   ├── STServo_Python/         ← Waveshare's official SDK distribution
-│   │   ├── requirements.txt    ← only dependency: pyserial==3.5
-│   │   └── stservo-env/        ← Windows venv from Waveshare tutorial (not usable on Mac)
-│   │       ├── STservo_sdk/    ← Waveshare's SDK (sts.py instead of sms_sts.py)
-│   │       └── sms_sts/        ← official example scripts (ping.py, read.py, etc.)
-│   ├── kinematics/
+│   ├── STServo_Python/                 ← Waveshare's official SDK distribution
+│   │   ├── requirements.txt            ← only dependency: pyserial==3.5
+│   │   └── stservo-env/               ← Windows venv (not usable on Mac/Pi)
+│   │       ├── STservo_sdk/            ← Waveshare's SDK (sts.py instead of sms_sts.py)
+│   │       └── sms_sts/               ← official example scripts (ping.py, read.py, etc.)
 │   ├── arduino/
+│   │   ├── ping_servo/
+│   │   │   └── ping_servo.ino          ← Arduino ping sketch (half-duplex, 1kΩ resistor wiring)
+│   │   ├── ping_servo_uno/
+│   │   │   └── ping_servo_uno.ino      ← Uno variant
+│   │   └── st3215-src/                 ← Feetech Arduino library source (SCServo)
+│   │       ├── SCServo/                ← Library with SMS_STS, SCSCL classes + examples
+│   │       └── ST Servo/               ← Alternative library variant
+│   ├── kinematics/
+│   ├── utils/
 │   └── config/
-│       └── limits.json
-├── .venv/                      ← Mac Python 3.12 venv (at hexarm root)
-└── ...
+│       └── limits.json                 ← joint travel limits (populated by calibrate.py)
+├── .venv/                              ← Python venv (recreate per platform — NOT cross-platform)
+└── .gitignore
 ```
+
+### Important config.py Notes
+- `config.py` currently has port assignments written for **Pi 5** (`/dev/ttyAMA0` and `/dev/ttyAMA3` on GPIO 4/5)
+- **Pi Zero 2W only has one exposed hardware UART** (ttyAMA0 on GPIO 14/15 after disable-bt)
+- Second arm port strategy for Pi Zero 2W is TBD — options: USB adapter, or software UART
+- The 1kΩ resistor half-duplex wiring comment in config.py applies to **direct** Pi→servo wiring; the Waveshare board handles this internally
 
 ---
 
@@ -116,7 +156,6 @@ Both SDKs are from Feetech/Waveshare and use identical packet protocols for STS3
 - `scservo_sdk` — Feetech's original SDK; uses class `sms_sts` for STS/SMS servos
 - `STservo_sdk` — Waveshare's renamed version; uses class `sts` (functionally identical)
 - "SCServo" is Feetech's brand name for the whole ecosystem, not a specific protocol
-- Both have been tested — both produce identical (failing) results in current debug
 
 ### Mac Development Environment
 - **Venv:** `hexarm/.venv` (Python 3.12)
@@ -163,47 +202,32 @@ Broadcast ID = 0xFE (254) — no response expected, servo acts but does not repl
 
 ---
 
-## Active Blocker: Servo Communication Not Working
+## Servo Communication — RESOLVED ✅
 
-**Status as of 2026-05-17:** Cannot establish serial communication with servos from Mac.
+**Status as of 2026-05-19:** Servo communication confirmed working over Pi UART → Waveshare board → STS3215.
 
-### What has been confirmed working:
-- Serial port opens successfully at `/dev/cu.usbmodem5B141112771`
-- Servos are powered: red LED lit, warm to touch, 12V confirmed between VCC and GND on JST
-- Board power: 12V into barrel jack, USB-C into Mac
-- Physical connections: 3-wire JST into Bus1/Bus2 ports, verified wiring
-- Board mode: USB-Servo (confirmed)
+### Root cause
+**Wrong UART wiring.** The Waveshare Bus Servo Adapter (A) in UART-Servo mode uses **straight-through wiring** (TX→TX, RX→RX), NOT the standard crossed wiring (TX→RX, RX→TX). The board labels its UART pins from the host's perspective — the board's TX pin means "connect your TX here," not "this pin transmits." This is counterintuitive and underdocumented.
 
-### What has been tried (all failing):
-- `ping_one.py` (scservo_sdk) → "There is no status packet" for all IDs
-- Official Waveshare `sms_sts/ping.py` example → same result
-- `raw_ping.py` (pure pyserial, no SDK) → "No bytes received"
-- All supported baud rates: 9600 / 19200 / 38400 / 57600 / 115200 / 250000 / 500000 / 1000000
-- IDs 1–20 at every baud rate (`baud_scan.py`)
-- Broadcast torque enable (0xFE) → no physical servo movement
-- Broadcast position command → no movement
-- Both `/dev/tty.*` and `/dev/cu.*` port prefixes
+### Confirmed working configuration
+- **Host:** Raspberry Pi Zero 2W
+- **Interface:** Hardware UART `/dev/ttyAMA0` (PL011, GPIO 14/15)
+- **Wiring:** Pi TX (GPIO 14) → Board TX, Pi RX (GPIO 15) → Board RX, GND → GND
+- **Board mode switch:** UART-Servo
+- **Board power:** 12V barrel jack only (no USB needed in UART-Servo mode)
+- **Baud rate:** 1,000,000 bps (factory default)
+- **Servo ID:** 1 (factory default)
+- **Test:** `baud_scan.py` → `*** GOT RESPONSE from ID 1: FC` at 1Mbps ✅
 
-### What was ruled out:
-- **Echo fix** (wrong): we added a `ser.read(total_packet_length)` after `writePort()` in
-  `protocol_packet_handler.py` thinking the board echoed TX bytes. It doesn't — the board
-  handles half-duplex in hardware. The fix was consuming the servo's response. **Reverted.**
-  Current `scservo_sdk/protocol_packet_handler.py` is stock (no echo fix).
-- **Wrong SDK class:** `sms_sts` is correct for STS3215 (not `scscl`)
-- **tty vs cu:** switching to `cu` prefix made no difference
+### What was tried before finding the root cause
+- Mac USB → Waveshare board (USB-Servo mode) → all baud rates, IDs 1–20: no response
+- Arduino UART → servo directly and through board: no response (Arduino also has 1Mbps inaccuracy)
+- Pi UART → Waveshare board (UART-Servo mode) with crossed wiring: no response
+- Suspected: broken board, dead servo, wrong baud, wrong SDK, Mac driver issues, USB CDC bug
+- All red herrings — root cause was wiring alone
 
-### Most likely remaining causes:
-1. **Data line not passing from board to servo bus** (power/GND confirmed, but DATA might not be switching properly in USB mode)
-2. **Servo bricked or in error state** (red LED is normal-on for STS3215, but worth verifying with a second servo)
-3. **Mac-specific USB CDC driver issue** silently dropping writes
-
-### Immediate next step:
-**Test with SCServo Debug on Windows (Bootcamp)**
-- Waveshare provides SCServo Debug tool on their wiki
-- Pass USB device through to Bootcamp, install CH340 driver if needed
-- Scan at 1 Mbps, IDs 1–20
-- If it works in Windows → Mac driver/port issue
-- If it also fails → hardware (data line between board and servo)
+### Key lesson
+**Always verify board-specific UART pin labeling convention before assuming standard crossing.** See `docs/debugging/servo-comms-debug-log.md` for the full debugging narrative.
 
 ---
 
@@ -218,12 +242,13 @@ Broadcast ID = 0xFE (254) — no response expected, servo acts but does not repl
 | STServo_Python (Waveshare SDK) added to software/ | ✅ Done |
 | ping_one.py, raw_ping.py, baud_scan.py created | ✅ Done |
 | LeRobot installed in Mac venv | ❌ Not possible (Intel Mac, torch 2.7+) |
-| Mac → board → servo communication working | ❌ **Blocked — see above** |
+| Mac → board → servo communication working | ⚠️ Not yet tested (USB-Servo mode) |
+| Pi → board → servo communication working | ✅ Done (2026-05-19) |
 | Pi Zero 2W setup (Ubuntu 24.04) | ✅ Done |
-| Pi UART configured (ttyAMA0) | ⏳ In progress |
-| Driver board connected to Pi | ⏳ In progress |
-| Servo IDs assigned (1–6 leader, 7–12 follower) | ⏳ Blocked by comms |
-| Bus communication test (ping all 12 servos) | ⏳ Blocked |
+| Pi UART configured (ttyAMA0) | ✅ Done |
+| Driver board connected to Pi | ✅ Done |
+| Servo IDs assigned (1–6 leader, 7–12 follower) | ⏳ Next up |
+| Bus communication test (ping all 12 servos) | ⏳ Next up |
 | LeRobot arm config file | ⏳ Todo |
 | First teleoperation test | ⏳ Todo |
 | Dataset recording | ⏳ Todo |
@@ -309,5 +334,14 @@ This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `
 - Raspberry Pi SSH setup — mDNS, host key management, direct IP fallback
 
 ---
+
+### Waveshare Bus Servo Adapter (A) — Critical Wiring Note
+
+**UART-Servo mode wiring is straight-through, NOT crossed:**
+- Pi TX → Board TX
+- Pi RX → Board RX
+- GND → GND
+
+This is the opposite of standard UART convention. The board labels its UART pins from the host's perspective. See `docs/debugging/servo-comms-debug-log.md`.
 
 *Last updated: 2026-05-19*
