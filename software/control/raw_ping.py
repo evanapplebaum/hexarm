@@ -6,8 +6,11 @@ Sends a raw PING packet directly over serial and prints the response.
 Bypasses the SDK entirely — purely for diagnosing the hardware path.
 
 The STS3215 ping response is always 6 bytes: FF FF ID 02 ERR CHECKSUM
-VMIN=1 on ttyAMA0 means read() returns after the first available byte,
-so we read one byte at a time in a loop until we have the full packet.
+
+ttyAMA0 quirk: pyserial sets VMIN=0 VTIME=0 on open, which persists after
+close. This causes read() to return immediately with 0 bytes on subsequent
+runs. Fix: set VMIN=6 via termios after opening the port so read(6) blocks
+until all 6 bytes arrive.
 
 Usage (Pi via UART):
     python3 software/control/raw_ping.py --port /dev/ttyAMA0 --id 1
@@ -15,8 +18,9 @@ Usage (Mac via USB Waveshare board):
     python3 software/control/raw_ping.py --port /dev/cu.usbmodem5B141112771 --id 1
 """
 
+import sys
 import serial
-import time
+import termios
 import argparse
 
 PING_RESPONSE_LEN = 6  # FF FF ID LEN ERR CHECKSUM
@@ -28,15 +32,16 @@ def ping_packet(servo_id):
     return bytes([0xFF, 0xFF, servo_id, 0x02, 0x01, checksum])
 
 
-def read_n_bytes(ser, n, timeout=0.5):
-    """Read exactly n bytes one at a time, respecting VMIN=1 on ttyAMA0."""
-    buf = bytearray()
-    deadline = time.time() + timeout
-    while len(buf) < n and time.time() < deadline:
-        b = ser.read(1)
-        if b:
-            buf.extend(b)
-    return bytes(buf)
+def set_vmin(ser, vmin, vtime=0):
+    """Set VMIN/VTIME on the serial port to control read() blocking behaviour.
+    pyserial sets VMIN=0 VTIME=0 on open and the settings persist after close.
+    Setting VMIN=n makes read(n) block until exactly n bytes are available.
+    """
+    fd = ser.fileno()
+    attrs = termios.tcgetattr(fd)
+    attrs[6][termios.VMIN]  = vmin
+    attrs[6][termios.VTIME] = vtime
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
 
 
 def main():
@@ -54,10 +59,11 @@ def main():
     print(f"Packet:   {' '.join(f'{b:02X}' for b in pkt)}")
 
     ser = serial.Serial(args.port, baudrate=args.baud, timeout=0.1)
+    set_vmin(ser, PING_RESPONSE_LEN)  # block until full response arrives
     ser.reset_input_buffer()
     ser.write(pkt)
 
-    raw = read_n_bytes(ser, PING_RESPONSE_LEN)
+    raw = ser.read(PING_RESPONSE_LEN)
     ser.close()
 
     print(f"Response: {' '.join(f'{b:02X}' for b in raw)} ({len(raw)}/{PING_RESPONSE_LEN} bytes)")
