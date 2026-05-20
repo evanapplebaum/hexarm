@@ -54,10 +54,20 @@ class PortHandler(object):
         return self.ser.in_waiting
 
     def readPort(self, length):
-        if (sys.version_info > (3, 0)):
-            return self.ser.read(length)
-        else:
-            return [ord(ch) for ch in self.ser.read(length)]
+        # Read exactly `length` bytes one at a time.
+        # ttyAMA0 on Pi has VMIN=1 which causes ser.read(n) to return after
+        # just 1 byte regardless of n. Loop until we have all bytes or timeout.
+        buf = bytearray()
+        import time
+        deadline = time.time() + (self.packet_timeout / 1000.0) + 0.5
+        while len(buf) < length and time.time() < deadline:
+            b = self.ser.read(1)
+            if b:
+                if sys.version_info > (3, 0):
+                    buf.extend(b)
+                else:
+                    buf.extend([ord(ch) for ch in b])
+        return bytes(buf) if sys.version_info > (3, 0) else list(buf)
 
     def writePort(self, packet):
         return self.ser.write(packet)
