@@ -2,19 +2,24 @@
 """
 setup_servo.py
 --------------
-Configure a single STS3215 servo: assign a unique ID and/or set return delay time.
+Configure a single STS3215 servo: assign a unique ID, set return delay, and/or
+change the baud rate.
 
 Run this script with ONE servo connected to the bus at a time.
 All servos ship with factory default ID=1 — if multiple are connected
 simultaneously they will collide on the bus and none will respond.
 
-Both ID and return delay are EPROM registers — written once, persist across power cycles.
-All EPROM writes are done in a single unlock/lock cycle for efficiency.
+ID, return delay, and baud rate are all EPROM registers — written once, persist
+across power cycles. All EPROM writes are done in a single unlock/lock cycle.
 
 Return delay (register 7): delay before servo sends its status packet response.
 Unit is 2us per count. Use this to give the host's UART time to switch from
 TX to RX direction before the servo response arrives. Recommended: 30 (= 60us).
 See docs/debugging/ for the direction-switching timing analysis.
+
+Baud rate (register 6): communication speed. Both Pi and servo must match.
+Supported: 1000000, 500000, 250000, 128000, 115200, 57600, 38400, 19200, 9600.
+Factory default: 1000000. After changing, power-cycle and use --baud <new_rate>.
 
 --force flag: skips the initial ping and uses broadcast ID (0xFE) for all writes.
 Use this when the SDK cannot read a full status packet due to direction-switching
@@ -22,15 +27,16 @@ timing issues (i.e. return delay has not been set yet). ONE servo on bus only.
 
 Workflow (repeat for each servo):
   1. Connect one servo to the Waveshare board (power + data)
-  2. Run this script with --new-id <target_id> [--return-delay <units>]
+  2. Run this script with desired options
   3. Wait for confirmation, then unplug that servo
   4. Connect the next servo and repeat
 
 Usage (Pi, run from repo root):
     python3 software/control/setup_servo.py --new-id 2
     python3 software/control/setup_servo.py --new-id 2 --return-delay 30
-    python3 software/control/setup_servo.py --current-id 5 --return-delay 30  # delay only, no ID change
-    python3 software/control/setup_servo.py --current-id 9 --return-delay 30 --force  # skip ping, use broadcast
+    python3 software/control/setup_servo.py --current-id 5 --return-delay 30
+    python3 software/control/setup_servo.py --current-id 9 --new-baud 250000 --force
+    python3 software/control/setup_servo.py --current-id 9 --return-delay 30 --force
 
 ID assignments for hexarm:
     Leader arm:   1, 2, 3, 4, 5, 6   (base -> tip)
@@ -52,7 +58,21 @@ from scservo_sdk import PortHandler, sms_sts, COMM_SUCCESS
 
 # --- register addresses (EPROM) ---
 REG_ID           = 5    # Servo ID (0-253; 254 = broadcast)
+REG_BAUD         = 6    # Baud rate index (see BAUD_MAP)
 REG_RETURN_DELAY = 7    # Return delay time (unit: 2us, range: 0-254, max = 508us)
+
+# Baud rate register values for STS3215 (register 6)
+BAUD_MAP = {
+    1_000_000: 0,
+      500_000: 1,
+      250_000: 2,
+      128_000: 3,
+      115_200: 4,
+       57_600: 5,
+       38_400: 6,
+       19_200: 7,
+        9_600: 8,
+}
 
 # --- defaults ---
 DEFAULT_PORT       = "/dev/ttyAMA0"
@@ -82,6 +102,10 @@ Examples:
                         help=f"Current ID of servo on bus (default: {FACTORY_DEFAULT_ID})")
     parser.add_argument("--return-delay", type=int, default=None,
                         help="Return delay in 2us units (0-254). 30 = 60us recommended.")
+    parser.add_argument("--new-baud",     type=int, default=None,
+                        help=f"New baud rate to write to servo EPROM. "
+                             f"Supported: {', '.join(str(b) for b in BAUD_MAP)}. "
+                             f"Power-cycle servo after changing, then use --baud <new_rate>.")
     parser.add_argument("--port",         default=DEFAULT_PORT,
                         help=f"Serial port (default: {DEFAULT_PORT})")
     parser.add_argument("--baud",         type=int, default=DEFAULT_BAUD,
@@ -103,8 +127,12 @@ Examples:
     if args.return_delay is not None and not (0 <= args.return_delay <= 254):
         print(f"ERROR: --return-delay must be 0-254 (got {args.return_delay}).")
         sys.exit(1)
-    if not change_id and args.return_delay is None:
-        print("Nothing to do — specify --new-id and/or --return-delay.")
+    if args.new_baud is not None and args.new_baud not in BAUD_MAP:
+        print(f"ERROR: --new-baud {args.new_baud} not supported.")
+        print(f"  Supported rates: {', '.join(str(b) for b in BAUD_MAP)}")
+        sys.exit(1)
+    if not change_id and args.return_delay is None and args.new_baud is None:
+        print("Nothing to do — specify --new-id, --return-delay, and/or --new-baud.")
         sys.exit(0)
 
     print(f"\nPort:         {args.port} @ {args.baud} baud")
@@ -113,6 +141,8 @@ Examples:
         print(f"New ID:       {target_id}")
     if args.return_delay is not None:
         print(f"Return delay: {args.return_delay} units = {args.return_delay * 2}us")
+    if args.new_baud is not None:
+        print(f"New baud:     {args.new_baud} (register value {BAUD_MAP[args.new_baud]})")
     print()
 
     # --- open port ---
@@ -187,6 +217,18 @@ Examples:
             sys.exit(1)
         print(f"  + Return delay write sent")
 
+    # --- step 3c: write baud rate (if requested) ---
+    if args.new_baud is not None:
+        reg_val = BAUD_MAP[args.new_baud]
+        print(f"Step 3c — Writing baud rate {args.new_baud} (register value {reg_val}) to register {REG_BAUD} (ID {write_id:#04x})...")
+        result, error = st.write1ByteTxRx(write_id, REG_BAUD, reg_val)
+        if not args.force and result != COMM_SUCCESS:
+            print(f"  x Baud rate write failed: {st.getTxRxResult(result)}")
+            st.LockEprom(write_id)
+            port_handler.closePort()
+            sys.exit(1)
+        print(f"  + Baud rate write sent")
+
     # --- step 4: lock EPROM ---
     print(f"Step 4 — Locking EPROM (ID {write_id:#04x})...")
     result, error = st.LockEprom(write_id)
@@ -202,6 +244,8 @@ Examples:
     if args.force:
         print(f"\nForce mode -- no verification possible. Power-cycle the servo, then")
         print(f"re-run without --force to confirm settings took effect.")
+        if args.new_baud is not None:
+            print(f"  Note: servo is now at {args.new_baud} baud. Use --baud {args.new_baud} on next run.")
     else:
         # --- verify: ping the target ID ---
         print(f"\nVerifying -- pinging ID {target_id}...")
