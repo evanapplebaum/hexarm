@@ -48,10 +48,15 @@ GitHub: `github.com/evanapplebaum/hexarm`
 - **Official Python SDK:** STservo_sdk (see software section)
 
 ### Compute — Raspberry Pi Zero 2W
-- **Status:** Not yet set up — being reflashed
-- **Planned OS:** Ubuntu 24.04 Server
+- **Status:** ✅ SSHable — UART setup in progress (2026-05-19)
+- **OS:** Ubuntu 24.04 Server (fresh flash via Raspberry Pi Imager)
+- **Network:** WiFi on "Apples" home network — IP `192.168.86.121`
+- **SSH:** `ssh ekapi@eka-pi02w.local` or `ssh ekapi@192.168.86.121`
 - **Connection to driver boards:** UART GPIO pins (one board per arm)
-- Previously had Pi-hole installed; needs to be reflashed before use
+- **UART setup:** PL011 hardware UART freed from Bluetooth via `dtoverlay=disable-bt` + `enable_uart=1` in `/boot/firmware/config.txt` — exposes `/dev/ttyAMA0` on GPIO 14 (TX) and GPIO 15 (RX)
+  - Pi Zero 2W has two UARTs: PL011 (hardware, clock-independent, reliable at 1Mbps) and mini-UART (CPU-clock-dependent, unreliable at high baud). PL011 is assigned to Bluetooth by default; disable-bt overlay frees it.
+- **Wiring to Waveshare board (UART-Servo mode):** Pi GPIO14/TX → Board RX, Pi GPIO15/RX → Board TX, Pi GND → Board GND
+- **Known dirty config:** `dtoverlay=dwc2,dr_mode=peripheral` and `modules-load=dwc2,g_ether` still in boot config from USB gadget mode attempts — harmless but should be cleaned up
 
 ### Vision (planned)
 - Wrist-mounted camera and/or overhead workspace camera
@@ -214,8 +219,9 @@ Broadcast ID = 0xFE (254) — no response expected, servo acts but does not repl
 | ping_one.py, raw_ping.py, baud_scan.py created | ✅ Done |
 | LeRobot installed in Mac venv | ❌ Not possible (Intel Mac, torch 2.7+) |
 | Mac → board → servo communication working | ❌ **Blocked — see above** |
-| Pi Zero 2W setup (Ubuntu 24.04) | ⏳ Todo |
-| Driver board connected to Pi | ⏳ Todo |
+| Pi Zero 2W setup (Ubuntu 24.04) | ✅ Done |
+| Pi UART configured (ttyAMA0) | ⏳ In progress |
+| Driver board connected to Pi | ⏳ In progress |
 | Servo IDs assigned (1–6 leader, 7–12 follower) | ⏳ Blocked by comms |
 | Bus communication test (ping all 12 servos) | ⏳ Blocked |
 | LeRobot arm config file | ⏳ Todo |
@@ -235,6 +241,44 @@ On macOS, each USB serial device appears twice: `/dev/tty.*` and `/dev/cu.*`.
 - `tty` waits for carrier detect — designed for incoming connections (modems receiving calls)
 - `cu` (call-up) initiates connections — correct for outbound serial communication
 - Always use `/dev/cu.usbmodem*` for this board on Mac.
+
+### Pi UART Configuration Commands
+
+```bash
+# Append a line to /boot/firmware/config.txt (Pi's boot config, read at startup):
+echo "dtoverlay=disable-bt" | sudo tee -a /boot/firmware/config.txt
+# echo "..." — print the string to stdout
+# sudo tee -a <file> — tee reads stdin and writes to both stdout AND the file;
+#   -a means append (don't overwrite); sudo needed because /boot/firmware/ is root-owned.
+#   Piping to "sudo tee" is the correct pattern when you need root to write a file,
+#   since "sudo echo ... >> file" doesn't work (the >> redirect runs as the current user).
+
+echo "enable_uart=1" | sudo tee -a /boot/firmware/config.txt
+
+# Verify a specific setting in config.txt:
+grep "dwc2" /Volumes/system-boot/config.txt
+# grep — search for a pattern in a file; prints matching lines.
+# Use -n flag to show line numbers: grep -n "pattern" file
+
+# Check which UART devices exist:
+ls /dev/ttyAMA* /dev/ttyS*
+# /dev/ttyAMA0 = PL011 hardware UART (want this for servos)
+# /dev/ttyS0   = mini-UART (CPU-clock-dependent, unreliable at 1Mbps)
+
+# Check active kernel boot parameters (read-only, reflects what actually booted):
+cat /proc/cmdline
+```
+
+### Pi SSH Quick Reference
+
+```bash
+ssh ekapi@eka-pi02w.local     # mDNS hostname (may be slow to resolve)
+ssh ekapi@192.168.86.121      # direct IP (faster, more reliable)
+
+# If SSH fails with "REMOTE HOST IDENTIFICATION HAS CHANGED" (happens after reflash):
+ssh-keygen -R eka-pi02w.local  # removes stale host key from ~/.ssh/known_hosts
+# Then retry ssh normally.
+```
 
 ### scservo_sdk Import Path
 `ping_one.py` and other scripts in `software/control/` use:
@@ -260,7 +304,10 @@ This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `
 - Jacobian matrix — physical meaning, column interpretation
 - Singularities — rank deficiency, physical causes
 - Pseudoinverse (J⁺) and null space
+- Device Tree and overlays — how Linux embedded systems describe hardware at boot
+- Pi UART architecture — PL011 vs mini-UART, why PL011 is required for 1Mbps servo comms
+- Raspberry Pi SSH setup — mDNS, host key management, direct IP fallback
 
 ---
 
-*Last updated: 2026-05-17*
+*Last updated: 2026-05-19*
