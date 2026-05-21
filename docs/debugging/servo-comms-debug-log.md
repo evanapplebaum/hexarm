@@ -183,3 +183,167 @@ Pi Zero 2W (Ubuntu 24.04)
 UART device: /dev/ttyAMA0
 Baud rate:   1,000,000
 ```
+
+---
+
+## Phase 4 — Intermittent Response Failures (2026-05-20)
+
+**Symptom:** After basic communication was established (Phase 3), pinging a servo produced inconsistent byte counts: always 0/6 or 5/6, **never 1–4**. Running `raw_ping.py` manually ~100 times showed a loose pattern of 2–3 failures followed by a success.
+
+---
+
+### Data Collection
+
+Wrote `ping_stress.py` — a stress-test script that pings a servo N times and logs every result (timestamp, byte count, hex bytes) to CSV. Two modes: `--mode reopen` (re-opens serial port each ping) and `--mode keepopen` (port stays open).
+
+Results at 1Mbps over ~100 pings each:
+
+| Mode | OK (6/6) | MISS (0/6) | PARTIAL (5/6) |
+|---|---|---|---|
+| reopen | ~14% | ~10% | ~76% |
+| keepopen | ~30% | ~30% | ~40% |
+
+Key observations:
+- **PARTIAL was always exactly 5/6** — the missing byte was always the first one (0xFF)
+- **Never 1, 2, 3, or 4 bytes** across hundreds of attempts
+- keepopen mode had more MISSes (0/6) than reopen
+
+---
+
+### Hypothesis Generation
+
+The "never 1–4" pattern is a strong constraint. If the cause were:
+- Timing / return delay → you'd get partial responses cut off anywhere in the packet
+- Loose wire → random byte counts, possible mid-packet dropout
+- VMIN=0 read() race → 0 bytes only (not 5)
+
+The only consistent explanation for 0/5/6 with nothing in between: **only the first byte is vulnerable, and all subsequent bytes arrive as an indivisible block.**
+
+---
+
+### Root Cause: UART Framing Error
+
+At the TX→RX bus turnaround on a half-duplex bus, the servo's line driver must pull the bus line back to idle-high before sending the response. This takes a finite time determined by the RC time constant: **τ = R_driver × C_bus**, where R is the driver's output impedance and C is the total parasitic capacitance of the wiring, connectors, and pins.
+
+During this rise time, the PL011 UART sees the line sitting low. It interprets the falling edge (TX→idle→response) as a start bit. It then clocks in 8 "data" bits while the line is still charging — garbage data. At the end of the byte, when it checks the stop bit (expected high), it may find the line low → **framing error**.
+
+The Linux tty layer, running under its default `IGNPAR` configuration, **silently discards** framing-errored bytes. No signal is sent to userspace. The discarded byte is gone.
+
+Because only the **first byte of the response** is at the turnaround boundary, and all remaining bytes are transmitted contiguously (no gap between them), only the first byte is ever affected. This perfectly explains the 0/5/6 distribution.
+
+The 0/6 case: occasionally the framing error hits the **outgoing ping packet's** first byte instead, corrupting the command. The servo rejects the malformed packet and sends no response.
+
+**Why retry works:** After the first transmission, the line driver's gate capacitances are partially charged and the driver re-enables faster on the next attempt. This is an RC capacitance effect — the driver is "warm" — not a thermal effect. On a DIY setup with hand-soldered headers and longer-than-spec wire runs, parasitic capacitance is higher than on a proper PCB, making this effect more pronounced.
+
+**What doesn't help:**
+- **Return delay (reg 7):** adds silence *before* the response, but the framing transient is locked to byte 1 of the response regardless of how long the bus was silent before it
+- **Baud rate reduction (250kbps tested):** the RC time constant is set by hardware capacitance, not by bit timing; a slower baud rate doesn't shrink the transient
+
+---
+
+### VMIN/VTIME Discovery
+
+A separate issue: pyserial sets `VMIN=0 VTIME=0` on `serial.Serial()` open, and these terminal settings **persist after `close()`**. With `VMIN=0`, a `read(n)` call returns immediately with 0 bytes if nothing has arrived yet — it doesn't block. This caused `raw_ping.py` run-to-run inconsistency that was mistaken for a hardware issue.
+
+**Fix:** After opening the port, call `termios.tcsetattr()` to set `VMIN=n` (where n = expected response length). This makes `read(n)` block until n bytes are available, eliminating the race condition.
+
+```python
+def set_vmin(ser, vmin, vtime=0):
+    fd = ser.fileno()
+    attrs = termios.tcgetattr(fd)
+    attrs[6][termios.VMIN]  = vmin
+    attrs[6][termios.VTIME] = vtime
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
+```
+
+---
+
+### Fix Implemented
+
+**1. Resync parser** (added to `scservo_sdk/port_handler.py:readPort()` and `control/raw_ping.py:parse_response()`):
+
+- Read `length+1` bytes (one extra to absorb the potential dropped first byte)
+- Search for `FF FF` header → clean case, return `buf[i:i+length]`
+- If not found, search for lone `FF` → the first 0xFF was dropped; prepend a synthetic 0xFF to reconstruct the original packet
+- Validate with checksum: `~(ID + LEN + ERR) & 0xFF`
+
+```python
+# Clean case
+for i in range(len(buf) - 1):
+    if buf[i] == 0xFF and buf[i + 1] == 0xFF:
+        return bytes(buf[i:i + length])
+
+# Lone FF — first 0xFF dropped, reconstruct
+for i in range(len(buf)):
+    if buf[i] == 0xFF:
+        return bytes(bytearray([0xFF]) + buf[i:i + length - 1])
+```
+
+**2. Retry on empty response** (`raw_ping.py`, MAX_RETRIES=2):
+
+```python
+for attempt in range(1, MAX_RETRIES + 2):
+    ser.reset_input_buffer()
+    ser.write(pkt)
+    raw = ser.read(PING_RESPONSE_LEN)
+    if raw:
+        break
+```
+
+**Result:** Near-100% reliable communication after fix. Occasional 0/6 (cold start) resolves on first retry.
+
+---
+
+### Servo ID Assignment (2026-05-20)
+
+All 12 STS3215 servos assigned unique IDs using `setup_servo.py` with the `--force` flag (broadcast write, no ACK):
+
+```bash
+# For each servo (one at a time, factory default ID=1):
+python3 software/control/setup_servo.py --new-id <X> --return-delay 100 --force
+python3 software/control/raw_ping.py --id <X>   # verify
+```
+
+| Arm | Servo | ID | Joint |
+|---|---|---|---|
+| Leader | Base | 1 | — |
+| Leader | — | 2 | — |
+| Leader | — | 3 | — |
+| Leader | — | 4 | — |
+| Leader | — | 5 | — |
+| Leader | Tip | 6 | — |
+| Follower | Base | 7 | — |
+| Follower | — | 8 | — |
+| Follower | — | 9 | — |
+| Follower | — | 10 | — |
+| Follower | — | 11 | — |
+| Follower | Tip | 12 | — |
+
+Return delay set to 100 units (200µs) for all servos.
+
+**Critical note about `--force` mode:** `--force` uses broadcast ID (0xFE) and skips ACK checking. Baud rate writes via `--force` write to SRAM — the EPROM only reloads on power cycle. Always specify `--baud <current_servo_baud>` when communicating at a non-default baud rate, e.g.:
+```bash
+python3 setup_servo.py --current-id 9 --new-baud 1000000 --force --baud 250000
+```
+
+---
+
+### Additional Files
+
+- `software/control/baud_scan.py` — scans all baud rates × IDs 1–20; useful when servo baud rate is unknown
+- `software/control/ping_stress.py` — stress-test script; CSV output; `--mode reopen` or `--mode keepopen`
+- **Note:** test CSV files (`reopen.csv`, `keepopen.csv`, `ping_stress_keepopen.csv`) were committed to the repo — add these to `.gitignore`
+
+---
+
+### Lessons Learned (Phase 4)
+
+1. **The byte count distribution is a strong diagnostic signal.** "Never 1–4 bytes" immediately rules out timing and loose-wire hypotheses and points to a per-byte mechanism at a fixed boundary.
+
+2. **VMIN=0 is a silent foot-gun.** pyserial's default terminal settings cause `read()` to be non-blocking. Set VMIN explicitly after opening the port on any Pi UART project.
+
+3. **Resync parsers beat return delay tuning.** Return delay cannot fix a framing error because the transient is physically welded to byte 1. A software resync parser handles it transparently without any hardware changes.
+
+4. **RC warm-up explains retry success.** The line driver charges faster on retry because the parasitic capacitance is already partially charged. This is more pronounced on DIY wiring than a production PCB.
+
+5. **port_handler.py is modified — do not replace with stock version.** The resync parser lives in `readPort()`. Replacing it with the upstream SDK would re-introduce the framing error.

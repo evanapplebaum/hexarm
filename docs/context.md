@@ -101,20 +101,16 @@ hexarm/
 │   │   ├── ping_one.py                 ← ping a single servo (CLI: --port, --id, --baud)
 │   │   ├── raw_ping.py                 ← raw pyserial diagnostic, bypasses SDK entirely
 │   │   ├── baud_scan.py                ← scans all baud rates × IDs 1–20 for any response
-│   │   ├── bus.py                      ← LeRobot FeetechMotorsBus connection helpers (Pi only)
-│   │   ├── config.py                   ← motor IDs, port assignments, joint names
-│   │   ├── calibrate.py                ← joint limit calibration (move to min/max, saves JSON)
-│   │   └── teleop.py
+│   │   ├── setup_servo.py              ← flash ID, return delay, baud rate to one servo at a time
+│   │   ├── ping_stress.py              ← stress-ping a servo N times, logs results to CSV
+│   │   ├── config.py                   ← motor IDs, port assignments (needs rewrite — Pi 5 refs)
+│   │   └── read_register.py            ← read arbitrary EPROM/SRAM register (needs VMIN fix)
 │   ├── scservo_sdk/                    ← Feetech official SDK (NOT a pip package — local copy)
 │   │   ├── protocol_packet_handler.py  ← packet framing/parsing (keep UNMODIFIED — see debug notes)
 │   │   ├── sms_sts.py                  ← STS/SMS series class (correct for STS3215)
 │   │   ├── port_handler.py
 │   │   └── ...
-│   ├── STServo_Python/                 ← Waveshare's official SDK distribution
-│   │   ├── requirements.txt            ← only dependency: pyserial==3.5
-│   │   └── stservo-env/               ← Windows venv (not usable on Mac/Pi)
-│   │       ├── STservo_sdk/            ← Waveshare's SDK (sts.py instead of sms_sts.py)
-│   │       └── sms_sts/               ← official example scripts (ping.py, read.py, etc.)
+│   ├── STServo_Python/                 ← DELETED (Windows venv, redundant with scservo_sdk/)
 │   ├── arduino/
 │   │   ├── ping_servo/
 │   │   │   └── ping_servo.ino          ← Arduino ping sketch (half-duplex, 1kΩ resistor wiring)
@@ -153,9 +149,10 @@ USB/UART → Waveshare board → servo bus
 
 ### scservo_sdk vs STservo_sdk
 Both SDKs are from Feetech/Waveshare and use identical packet protocols for STS3215:
-- `scservo_sdk` — Feetech's original SDK; uses class `sms_sts` for STS/SMS servos
-- `STservo_sdk` — Waveshare's renamed version; uses class `sts` (functionally identical)
+- `scservo_sdk` — Feetech's original SDK; uses class `sms_sts` for STS/SMS servos; **this is the one in use**
+- `STservo_sdk` — Waveshare's renamed version; uses class `sts` (functionally identical); **deleted from repo** (Windows venv, redundant)
 - "SCServo" is Feetech's brand name for the whole ecosystem, not a specific protocol
+- `port_handler.py` has been modified with a resync parser in `readPort()` — do NOT replace with stock version
 
 ### Mac Development Environment
 - **Venv:** `hexarm/.venv` (Python 3.12)
@@ -204,30 +201,40 @@ Broadcast ID = 0xFE (254) — no response expected, servo acts but does not repl
 
 ## Servo Communication — RESOLVED ✅
 
-**Status as of 2026-05-19:** Servo communication confirmed working over Pi UART → Waveshare board → STS3215.
+**Status as of 2026-05-20:** All 12 servos responding. Two separate issues encountered and resolved.
 
-### Root cause
-**Wrong UART wiring.** The Waveshare Bus Servo Adapter (A) in UART-Servo mode uses **straight-through wiring** (TX→TX, RX→RX), NOT the standard crossed wiring (TX→RX, RX→TX). The board labels its UART pins from the host's perspective — the board's TX pin means "connect your TX here," not "this pin transmits." This is counterintuitive and underdocumented.
+### Issue 1: No response at all (resolved 2026-05-19)
+**Root cause: Wrong UART wiring.** The Waveshare Bus Servo Adapter (A) uses **straight-through wiring** (TX→TX, RX→RX), NOT the standard crossed wiring. The board labels its pins from the host's perspective — counterintuitive and underdocumented. See `docs/debugging/servo-comms-debug-log.md` Phases 1–3.
+
+### Issue 2: Intermittent responses — 0/5/6 bytes, never 1–4 (resolved 2026-05-20)
+**Root cause: UART framing error from line-driver turn-on transient.**
+
+At the TX→RX bus turnaround, the servo's line driver takes time to charge the bus back to idle-high (RC rise time: τ = R_driver × C_bus). During this rise, the PL011 UART samples what looks like a valid start bit (line still low), then reads garbage data bits — a **framing error**. The Linux tty layer, under its default `IGNPAR` setting, **silently discards** the framing-errored byte with no warning to userspace.
+
+Because only the **first byte** of the response is at the turnaround boundary (all subsequent bytes arrive cleanly and contiguously), the only possible byte counts are 0, 5, or 6. Counts of 1–4 are physically impossible under this failure mode — and empirically, none were observed across hundreds of pings.
+
+The 0/6 case: the framing error hits the **outgoing ping's** first byte, corrupting it — the servo rejects the whole packet and sends no response at all.
+
+**Fix implemented in `scservo_sdk/port_handler.py` and `control/raw_ping.py`:**
+1. **Resync parser** — reads `length+1` bytes; finds `FF FF` header. If only a lone `FF` is found (first 0xFF dropped by tty layer), prepends a synthetic 0xFF to reconstruct the packet. Checksum `~(ID+LEN+ERR)&0xFF` confirms integrity.
+2. **Retry on empty response** (MAX_RETRIES=2 in `raw_ping.py`) — the 0/6 case resolves on retry because the line driver is "warm" from the first transmission; the RC capacitance is already partially charged and the transient is smaller on subsequent attempts.
+
+**What was ruled out:**
+- Return delay (reg 7): doesn't help — the transient is physically tied to the first byte regardless of the silence period before it.
+- Baud rate reduction to 250kbps: doesn't help — the RC time constant is set by hardware, independent of bit timing.
+
+**VMIN/VTIME note:** pyserial sets `VMIN=0 VTIME=0` on port open, which persists after `close()`. With VMIN=0, `read(n)` returns immediately with 0 bytes if nothing has arrived yet, making missed responses look identical to an empty buffer. Fix: call `termios.tcsetattr()` to set `VMIN=n` after opening the port. See `raw_ping.py:set_vmin()`.
 
 ### Confirmed working configuration
 - **Host:** Raspberry Pi Zero 2W
 - **Interface:** Hardware UART `/dev/ttyAMA0` (PL011, GPIO 14/15)
 - **Wiring:** Pi TX (GPIO 14) → Board TX, Pi RX (GPIO 15) → Board RX, GND → GND
 - **Board mode switch:** UART-Servo
-- **Board power:** 12V barrel jack only (no USB needed in UART-Servo mode)
-- **Baud rate:** 1,000,000 bps (factory default)
-- **Servo ID:** 1 (factory default)
-- **Test:** `baud_scan.py` → `*** GOT RESPONSE from ID 1: FC` at 1Mbps ✅
+- **Board power:** 12V barrel jack only
+- **Baud rate:** 1,000,000 bps
+- **All 12 servos responding:** IDs 1–12 ✅
 
-### What was tried before finding the root cause
-- Mac USB → Waveshare board (USB-Servo mode) → all baud rates, IDs 1–20: no response
-- Arduino UART → servo directly and through board: no response (Arduino also has 1Mbps inaccuracy)
-- Pi UART → Waveshare board (UART-Servo mode) with crossed wiring: no response
-- Suspected: broken board, dead servo, wrong baud, wrong SDK, Mac driver issues, USB CDC bug
-- All red herrings — root cause was wiring alone
-
-### Key lesson
-**Always verify board-specific UART pin labeling convention before assuming standard crossing.** See `docs/debugging/servo-comms-debug-log.md` for the full debugging narrative.
+See `docs/debugging/servo-comms-debug-log.md` for the full narrative.
 
 ---
 
@@ -239,18 +246,21 @@ Broadcast ID = 0xFE (254) — no response expected, servo acts but does not repl
 | Mac venv created (Python 3.12) | ✅ Done |
 | pyserial installed in Mac venv | ✅ Done |
 | scservo_sdk copied into software/ | ✅ Done |
-| STServo_Python (Waveshare SDK) added to software/ | ✅ Done |
-| ping_one.py, raw_ping.py, baud_scan.py created | ✅ Done |
+| ping_one.py, raw_ping.py, baud_scan.py, setup_servo.py created | ✅ Done |
+| Framing error resync parser in port_handler.py + raw_ping.py | ✅ Done (2026-05-20) |
 | LeRobot installed in Mac venv | ❌ Not possible (Intel Mac, torch 2.7+) |
 | Mac → board → servo communication working | ⚠️ Not yet tested (USB-Servo mode) |
 | Pi → board → servo communication working | ✅ Done (2026-05-19) |
 | Pi Zero 2W setup (Ubuntu 24.04) | ✅ Done |
 | Pi UART configured (ttyAMA0) | ✅ Done |
 | Driver board connected to Pi | ✅ Done |
-| Servo IDs assigned (1–6 leader, 7–12 follower) | ⏳ Next up |
-| Bus communication test (ping all 12 servos) | ⏳ Next up |
-| LeRobot arm config file | ⏳ Todo |
-| First teleoperation test | ⏳ Todo |
+| Servo IDs assigned (1–6 leader, 7–12 follower) | ✅ Done (2026-05-20) |
+| Bus communication test (ping all 12 servos) | ✅ Done (2026-05-20) |
+| config.py rewrite (remove LeRobot, update for Pi Zero 2W) | ⏳ Todo |
+| read_register.py VMIN fix | ⏳ Todo |
+| Second arm port strategy for Pi Zero 2W | ⏳ Todo |
+| Joint limit calibration (calibrate.py) | ⏳ Next up |
+| First teleoperation test (teleop.py from scratch) | ⏳ Todo |
 | Dataset recording | ⏳ Todo |
 | Policy training | ⏳ Todo |
 
@@ -332,6 +342,15 @@ This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `
 - Device Tree and overlays — how Linux embedded systems describe hardware at boot
 - Pi UART architecture — PL011 vs mini-UART, why PL011 is required for 1Mbps servo comms
 - Raspberry Pi SSH setup — mDNS, host key management, direct IP fallback
+- UART framing errors — what "corrupting a start bit" means on a µs scale (RC transient, PL011 error flag)
+- Linux tty IGNPAR — silent byte discard on framing errors, no userspace notification
+- VMIN/VTIME POSIX terminal settings — how they control read() blocking, pyserial persistence bug
+- Resync parser design — using checksum as integrity check to recover from a dropped header byte
+- RC charging analogy for line-driver turn-on transient — τ=RC, capacitance sources, retry warm-up effect
+- STS3215 EPROM write workflow — unLockEprom → write → LockEprom, broadcast --force mode
+- Baud rate register (reg 6) and BAUD_MAP — value encoding, power-cycle requirement
+- Return delay register (reg 7) — what it does (silence before response) and what it doesn't fix (framing errors)
+- git rm vs rm — staging deletions for git, using git add -A to recover after rm
 
 ---
 
@@ -344,4 +363,4 @@ This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `
 
 This is the opposite of standard UART convention. The board labels its UART pins from the host's perspective. See `docs/debugging/servo-comms-debug-log.md`.
 
-*Last updated: 2026-05-19*
+*Last updated: 2026-05-20*
