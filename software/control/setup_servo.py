@@ -51,15 +51,15 @@ import sys
 import os
 import argparse
 
-# scservo_sdk lives in software/ -- one level up from software/control/
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from scservo_sdk import PortHandler, sms_sts, COMM_SUCCESS
+# Local control package — _serial_utils handles VMIN fix + SDK retry wrappers.
+sys.path.insert(0, os.path.dirname(__file__))
+from _serial_utils import open_sdk_port, ping_with_retry, write_byte_with_retry
 
 # --- register addresses (EPROM) ---
 REG_ID           = 5    # Servo ID (0-253; 254 = broadcast)
 REG_BAUD         = 6    # Baud rate index (see BAUD_MAP)
 REG_RETURN_DELAY = 7    # Return delay time (unit: 2us, range: 0-254, max = 508us)
+REG_LOCK         = 55   # EPROM lock (matches scservo_sdk.sms_sts.SMS_STS_LOCK)
 
 # Baud rate register values for STS3215 (register 6)
 BAUD_MAP = {
@@ -145,35 +145,43 @@ Examples:
         print(f"New baud:     {args.new_baud} (register value {BAUD_MAP[args.new_baud]})")
     print()
 
-    # --- open port ---
-    port_handler = PortHandler(args.port)
-    st = sms_sts(port_handler)
-
-    if not port_handler.openPort():
-        print("ERROR: Failed to open port.")
-        print("  Check: is the Waveshare board powered (12V barrel)? Mode switch on UART-Servo?")
-        sys.exit(1)
-
-    if not port_handler.setBaudRate(args.baud):
-        print("ERROR: Failed to set baud rate.")
-        port_handler.closePort()
-        sys.exit(1)
+    # --- open port (handles VMIN fix internally) ---
+    port_handler, st = open_sdk_port(args.port, args.baud)
 
     # In --force mode, all writes go to broadcast ID (0xFE).
     # Servo acts on broadcast packets but sends no response — no ACK checking.
     # Use when return delay is not yet set and SDK cannot parse status packets.
     write_id = 0xFE if args.force else args.current_id
 
+    def do_write(label, addr, value):
+        """Write one EPROM byte. In broadcast (--force) mode no response is
+        expected, so retry is skipped. Otherwise retry with the standard
+        framing-error budget. Aborts the script on failure (after re-locking
+        EPROM if possible)."""
+        print(f"{label} (ID {write_id:#04x})...")
+        if args.force:
+            # Broadcast — fire and forget; SDK call returns RX_TIMEOUT, ignore.
+            st.write1ByteTxRx(write_id, addr, value)
+            print(f"  + {label.split('—')[0].strip()} sent (broadcast)")
+            return
+        ok, result = write_byte_with_retry(st, write_id, addr, value)
+        if not ok:
+            print(f"  x Write failed: {st.getTxRxResult(result)}")
+            # Try to leave EPROM in a sane state before bailing.
+            st.LockEprom(write_id)
+            port_handler.closePort()
+            sys.exit(1)
+        print(f"  + {label.split('—')[0].strip()} sent")
+
     # --- step 1: ping (skipped in --force mode) ---
     if args.force:
         print("Step 1 — Skipping ping (--force mode). Ensure exactly ONE servo is on the bus.")
     else:
         print(f"Step 1 — Pinging ID {args.current_id}...")
-        model_number, result, error = st.ping(args.current_id)
+        ok, model_number = ping_with_retry(st, args.current_id)
 
-        if result != COMM_SUCCESS:
-            print(f"  x No response from ID {args.current_id}.")
-            print(f"    {st.getTxRxResult(result)}")
+        if not ok:
+            print(f"  x No response from ID {args.current_id} after retries.")
             print("\n  Possible causes:")
             print("  - More than one servo connected (ID collision)")
             print("  - Servo already has a different ID -- use --current-id to specify it")
@@ -185,61 +193,28 @@ Examples:
         print(f"  + Servo present -- model: {model_number}")
 
     # --- step 2: unlock EPROM ---
-    print(f"Step 2 — Unlocking EPROM (ID {write_id:#04x})...")
-    result, error = st.unLockEprom(write_id)
-
-    if not args.force and result != COMM_SUCCESS:
-        print(f"  x EPROM unlock failed: {st.getTxRxResult(result)}")
-        port_handler.closePort()
-        sys.exit(1)
-
-    print("  + EPROM unlock sent")
+    do_write("Step 2 — Unlocking EPROM", REG_LOCK, 0)
 
     # --- step 3a: write new ID (if changing) ---
     if change_id:
-        print(f"Step 3a — Writing new ID {target_id} to register {REG_ID} (ID {write_id:#04x})...")
-        result, error = st.write1ByteTxRx(write_id, REG_ID, target_id)
-        if not args.force and result != COMM_SUCCESS:
-            print(f"  x ID write failed: {st.getTxRxResult(result)}")
-            st.LockEprom(write_id)
-            port_handler.closePort()
-            sys.exit(1)
-        print(f"  + ID write sent")
+        do_write(f"Step 3a — Writing new ID {target_id} to register {REG_ID}",
+                 REG_ID, target_id)
 
     # --- step 3b: write return delay (if requested) ---
     if args.return_delay is not None:
-        print(f"Step 3b — Writing return delay {args.return_delay} ({args.return_delay * 2}us) to register {REG_RETURN_DELAY} (ID {write_id:#04x})...")
-        result, error = st.write1ByteTxRx(write_id, REG_RETURN_DELAY, args.return_delay)
-        if not args.force and result != COMM_SUCCESS:
-            print(f"  x Return delay write failed: {st.getTxRxResult(result)}")
-            st.LockEprom(write_id)
-            port_handler.closePort()
-            sys.exit(1)
-        print(f"  + Return delay write sent")
+        do_write(f"Step 3b — Writing return delay {args.return_delay} "
+                 f"({args.return_delay * 2}us) to register {REG_RETURN_DELAY}",
+                 REG_RETURN_DELAY, args.return_delay)
 
     # --- step 3c: write baud rate (if requested) ---
     if args.new_baud is not None:
         reg_val = BAUD_MAP[args.new_baud]
-        print(f"Step 3c — Writing baud rate {args.new_baud} (register value {reg_val}) to register {REG_BAUD} (ID {write_id:#04x})...")
-        result, error = st.write1ByteTxRx(write_id, REG_BAUD, reg_val)
-        if not args.force and result != COMM_SUCCESS:
-            print(f"  x Baud rate write failed: {st.getTxRxResult(result)}")
-            st.LockEprom(write_id)
-            port_handler.closePort()
-            sys.exit(1)
-        print(f"  + Baud rate write sent")
+        do_write(f"Step 3c — Writing baud rate {args.new_baud} "
+                 f"(register value {reg_val}) to register {REG_BAUD}",
+                 REG_BAUD, reg_val)
 
     # --- step 4: lock EPROM ---
-    print(f"Step 4 — Locking EPROM (ID {write_id:#04x})...")
-    result, error = st.LockEprom(write_id)
-
-    if not args.force and result != COMM_SUCCESS:
-        print(f"  x EPROM lock failed: {st.getTxRxResult(result)}")
-        print(f"    WARNING: EPROM is unlocked. Power-cycle the servo to re-lock automatically.")
-        port_handler.closePort()
-        sys.exit(1)
-
-    print("  + EPROM lock sent")
+    do_write("Step 4 — Locking EPROM", REG_LOCK, 1)
 
     if args.force:
         print(f"\nForce mode -- no verification possible. Power-cycle the servo, then")
@@ -249,13 +224,12 @@ Examples:
     else:
         # --- verify: ping the target ID ---
         print(f"\nVerifying -- pinging ID {target_id}...")
-        model_number, result, error = st.ping(target_id)
+        ok, model_number = ping_with_retry(st, target_id)
 
-        if result == COMM_SUCCESS:
+        if ok:
             print(f"  + SUCCESS -- Servo responds as ID {target_id}")
         else:
-            print(f"  x No response on ID {target_id}")
-            print(f"    {st.getTxRxResult(result)}")
+            print(f"  x No response on ID {target_id} after retries")
 
     port_handler.closePort()
     print()

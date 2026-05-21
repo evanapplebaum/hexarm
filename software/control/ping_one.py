@@ -21,10 +21,9 @@ import sys
 import os
 import argparse
 
-# scservo_sdk lives in software/ — one level up from software/control/
-sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
-
-from scservo_sdk import PortHandler, sms_sts, COMM_SUCCESS
+# Local control package — _serial_utils handles VMIN fix + SDK retry wrappers.
+sys.path.insert(0, os.path.dirname(__file__))
+from _serial_utils import open_sdk_port, ping_with_retry
 
 # --- defaults ---
 DEFAULT_PORT  = "/dev/ttyAMA0"   # Pi UART — override with --port /dev/cu.usbmodem* for Mac
@@ -39,29 +38,17 @@ def main():
     parser.add_argument("--baud",  default=DEFAULT_BAUD,  type=int, help="Baud rate")
     args = parser.parse_args()
 
-    port_handler = PortHandler(args.port)
-    st = sms_sts(port_handler)
-
     print(f"Opening port {args.port} at {args.baud} baud...")
-    if not port_handler.openPort():
-        print("ERROR: Failed to open port. Check the port name with: ls /dev/tty.*")
-        sys.exit(1)
-
-    if not port_handler.setBaudRate(args.baud):
-        print("ERROR: Failed to set baud rate.")
-        port_handler.closePort()
-        sys.exit(1)
+    port_handler, st = open_sdk_port(args.port, args.baud)
 
     print(f"Pinging servo ID {args.id}...")
-    model_number, result, error = st.ping(args.id)
+    ok, model_number = ping_with_retry(st, args.id)
 
-    if result == COMM_SUCCESS:
+    if ok:
         print(f"  ✓ Servo ID {args.id} responded — model number: {model_number}")
     else:
-        print(f"  ✗ No response from servo ID {args.id}")
-        print(f"    result: {st.getTxRxResult(result)}")
-        if error:
-            print(f"    error:  {st.getRxPacketError(error)}")
+        print(f"  ✗ No response from servo ID {args.id} after retries")
+        print(f"    Check ID with: python software/control/baud_scan.py")
 
     port_handler.closePort()
 
