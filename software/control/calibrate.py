@@ -47,6 +47,7 @@ import argparse
 import json
 import time
 
+import termios
 import readchar
 
 # scservo_sdk lives in software/ — one level up from software/control/
@@ -57,8 +58,9 @@ from scservo_sdk import PortHandler, sms_sts, COMM_SUCCESS
 REG_TORQUE_ENABLE = 40  # SRAM — 0 = torque off (free to move), 1 = torque on
 
 # --- defaults ---
-DEFAULT_PORT = "/dev/ttyAMA0"
-DEFAULT_BAUD = 1_000_000
+DEFAULT_PORT  = "/dev/ttyAMA0"
+DEFAULT_BAUD  = 1_000_000
+MAX_RETRIES   = 2   # retries on empty response (0/6 framing error case)
 
 # Path to limits file — relative to this script's location
 LIMITS_FILE = os.path.join(os.path.dirname(__file__), "..", "config", "limits.json")
@@ -106,6 +108,21 @@ def render_status(servo_id, slot_idx, measurements, current_pos, comm_ok):
 # Serial helpers
 # ---------------------------------------------------------------------------
 
+def set_vmin(ser, vmin, vtime=0):
+    """Set VMIN/VTIME on the underlying serial fd.
+
+    pyserial opens with timeout=0 which sets VMIN=0 VTIME=0 — read() returns
+    immediately with 0 bytes if nothing has arrived yet. Setting VMIN=1 makes
+    each read(1) block until at least one byte is available, which is what we
+    want for the deadline-loop in port_handler.readPort().
+    """
+    fd = ser.fileno()
+    attrs = termios.tcgetattr(fd)
+    attrs[6][termios.VMIN]  = vmin
+    attrs[6][termios.VTIME] = vtime
+    termios.tcsetattr(fd, termios.TCSANOW, attrs)
+
+
 def open_port(port, baud):
     port_handler = PortHandler(port)
     st = sms_sts(port_handler)
@@ -120,15 +137,28 @@ def open_port(port, baud):
         port_handler.closePort()
         sys.exit(1)
 
+    # Fix pyserial VMIN=0 default — see raw_ping.py for full explanation
+    set_vmin(port_handler.ser, vmin=1)
+
     return port_handler, st
 
 
 def ping_servo(st, servo_id):
-    """Ping a servo. Returns True on success."""
-    model, result, error = st.ping(servo_id)
-    if result == COMM_SUCCESS:
-        print(f"  ✓ Servo {servo_id} online (model {model})")
-        return True
+    """Ping a servo, with retries for the 0/6 framing error case.
+
+    The bus turnaround transient occasionally corrupts the outgoing ping packet
+    itself, causing the servo to not reply at all (0 bytes back). Retrying works
+    because the line driver is 'warm' after the first transmission — the RC
+    capacitance is partially charged and the transient is smaller on retry.
+    See docs/debugging/servo-comms-debug-log.md for the full explanation.
+    """
+    for attempt in range(1, MAX_RETRIES + 2):
+        model, result, error = st.ping(servo_id)
+        if result == COMM_SUCCESS:
+            print(f"  ✓ Servo {servo_id} online (model {model})")
+            return True
+        if attempt <= MAX_RETRIES:
+            pass  # silent retry — noise is expected on first attempt
     print(f"  ✗ No response from servo {servo_id}: {st.getTxRxResult(result)}")
     return False
 
@@ -141,10 +171,11 @@ def disable_torque(st, servo_id):
 
 
 def read_position(st, servo_id):
-    """Read present encoder position. Returns (pos, ok)."""
-    pos, result, error = st.ReadPos(servo_id)
-    if result == COMM_SUCCESS:
-        return pos, True
+    """Read present encoder position, with retries. Returns (pos, ok)."""
+    for attempt in range(1, MAX_RETRIES + 2):
+        pos, result, error = st.ReadPos(servo_id)
+        if result == COMM_SUCCESS:
+            return pos, True
     return 0, False
 
 
