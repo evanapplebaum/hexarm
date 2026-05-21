@@ -131,7 +131,7 @@ class PortHandler(object):
             # parity = serial.PARITY_ODD,
             # stopbits = serial.STOPBITS_TWO,
             bytesize=serial.EIGHTBITS,
-            timeout=0
+            timeout=0.1   # was 0 (O_NONBLOCK); 0.1 uses select-based timeout so VMIN works
         )
         
         self.ser.setRTS(False)
