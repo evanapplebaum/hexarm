@@ -54,20 +54,44 @@ class PortHandler(object):
         return self.ser.in_waiting
 
     def readPort(self, length):
-        # Read exactly `length` bytes one at a time.
-        # ttyAMA0 on Pi has VMIN=1 which causes ser.read(n) to return after
-        # just 1 byte regardless of n. Loop until we have all bytes or timeout.
+        """Read `length` bytes from the serial port with resync on framing errors.
+
+        At the TX→RX bus turnaround, the servo's line-driver turn-on transient
+        can corrupt the start bit of the first response byte. The PL011 flags a
+        framing error and the Linux tty layer silently discards that byte.
+
+        Fix: read one extra byte (length+1), then locate the FF FF packet header.
+        If found at offset > 0, skip the leading garbage. If only a lone FF is
+        found (first 0xFF dropped), prepend the missing 0xFF to reconstruct the
+        original packet before returning it to the protocol handler.
+        """
         buf = bytearray()
-        import time
         deadline = time.time() + (self.packet_timeout / 1000.0) + 0.5
-        while len(buf) < length and time.time() < deadline:
+        target = length + 1  # one extra byte to absorb a possible leading dropped byte
+
+        while len(buf) < target and time.time() < deadline:
             b = self.ser.read(1)
             if b:
                 if sys.version_info > (3, 0):
                     buf.extend(b)
                 else:
                     buf.extend([ord(ch) for ch in b])
-        return bytes(buf) if sys.version_info > (3, 0) else list(buf)
+
+        # --- resync: find FF FF header ---
+        for i in range(len(buf) - 1):
+            if buf[i] == 0xFF and buf[i + 1] == 0xFF:
+                result = bytes(buf[i:i + length])
+                return result if sys.version_info > (3, 0) else list(result)
+
+        # --- lone FF: first 0xFF was dropped by framing error, reconstruct ---
+        for i in range(len(buf)):
+            if buf[i] == 0xFF:
+                reconstructed = bytearray([0xFF]) + buf[i:i + length - 1]
+                return bytes(reconstructed) if sys.version_info > (3, 0) else list(reconstructed)
+
+        # --- nothing useful: return whatever we have ---
+        result = bytes(buf[:length])
+        return result if sys.version_info > (3, 0) else list(result)
 
     def writePort(self, packet):
         return self.ser.write(packet)
