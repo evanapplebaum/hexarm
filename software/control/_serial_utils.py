@@ -103,24 +103,26 @@ def open_sdk_port(port: str, baud: int):
 
     The function applies all of the workarounds the SDK needs to talk to an
     STS3215 reliably on a Pi via the Waveshare board:
-      * opens via PortHandler (which now uses timeout=0.1 internally)
+      * opens via PortHandler (which uses timeout=0.1 internally so VMIN works)
       * sets requested baud
       * sets VMIN=1 on the fd
+
+    Note on the open path: PortHandler.openPort() internally calls
+    setBaudRate(self.baudrate) where self.baudrate is the constructor default.
+    Setting port_handler.baudrate BEFORE openPort avoids a redundant
+    close/reopen cycle.
     """
     port_handler = PortHandler(port)
+    port_handler.baudrate = baud  # consumed by openPort → setBaudRate → setupPort
     st = sms_sts(port_handler)
 
     if not port_handler.openPort():
-        print(f"ERROR: Could not open port {port}.")
+        print(f"ERROR: Could not open port {port} at {baud} baud.")
         print("  Check: board powered (12V barrel)? Mode switch set correctly?")
         raise SystemExit(1)
 
-    if not port_handler.setBaudRate(baud):
-        print(f"ERROR: Could not set baud rate {baud}.")
-        port_handler.closePort()
-        raise SystemExit(1)
-
-    # Must be after the final setupPort() call — setBaudRate reopens the fd.
+    # Must be after setupPort() — VMIN=0 is pyserial's default and would
+    # otherwise let ser.read(1) return immediately with 0 bytes.
     set_vmin(port_handler.ser, vmin=1)
 
     return port_handler, st
