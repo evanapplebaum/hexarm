@@ -2,7 +2,7 @@
 
 A custom 6-DOF leader-follower robotic arm system based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation — with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework as the end goal.
 
-> **Status:** 🔧 In development — compute and software stack ready, awaiting hardware
+> **Status:** 🔧 In active development — servo communication and per-joint calibration working end-to-end (2026-05-25). Teleoperation control loop is next.
 
 ---
 
@@ -13,9 +13,10 @@ A custom 6-DOF leader-follower robotic arm system based on the open-source [SO-1
 | Configuration | Leader-follower (2 arms) |
 | Degrees of Freedom | 6 per arm (5 + gripper) |
 | Actuators | FEETECH STS3215 (6× per arm, 12 total) |
-| Servo Driver | Waveshare Serial Bus Servo Driver (USB → TTL) |
-| Compute | Raspberry Pi 5 |
-| Framework | [LeRobot](https://github.com/huggingface/lerobot) 0.5.2 |
+| Servo Driver | Waveshare Bus Servo Adapter (A) — half-duplex TTL, USB or UART host |
+| Compute | Raspberry Pi Zero 2W (Ubuntu 24.04 server) |
+| Bus interface | PL011 hardware UART on `/dev/ttyAMA0` at 1 Mbps |
+| Framework | [LeRobot](https://github.com/huggingface/lerobot) 0.5.2 (target) |
 | CAD Tool | Onshape |
 | Reach | TBD |
 | Payload | TBD |
@@ -63,9 +64,10 @@ hexarm/
 
 ### Requirements
 
-- Raspberry Pi 5 running Ubuntu Server 24.04 (aarch64)
-- Waveshare Serial Bus Servo Driver
+- Raspberry Pi Zero 2W running Ubuntu Server 24.04 (aarch64)
+- Waveshare Bus Servo Adapter (A) (×2 once both arms are wired)
 - 12× FEETECH STS3215 servos
+- 12 V DC supply for the servo bus
 
 ### Software Setup
 
@@ -74,14 +76,20 @@ hexarm/
 git clone https://github.com/evanapplebaum/hexarm.git
 cd hexarm
 
-# SSH into the Pi
-ssh ekapi@eka-pi5.local
+# Set up Python environment
+python3 -m venv .venv
+source .venv/bin/activate
+pip install pyserial readchar
 
-# Activate the LeRobot environment
-source ~/lerobot-env/bin/activate
+# On the Pi only — free PL011 from Bluetooth and disable the serial console.
+# See docs/context.md "Compute — Raspberry Pi Zero 2W" for the full procedure.
+
+# Verify communication with a connected servo:
+python3 software/control/raw_ping.py --id 1     # raw pyserial diagnostic
+python3 software/control/ping_one.py --id 1     # via the scservo_sdk path
 ```
 
-*Full setup guide coming once hardware integration is complete.*
+See [docs/context.md](docs/context.md) for the full hardware/software handoff document and [docs/debugging/servo-comms-debug-log.md](docs/debugging/servo-comms-debug-log.md) for a deep dive into the comms bring-up.
 
 ---
 
@@ -89,15 +97,16 @@ source ~/lerobot-env/bin/activate
 
 | Task | Status |
 |---|---|
-| Pi 5 flashed with Ubuntu 24.04 | ✅ Done |
-| System updated | ✅ Done |
-| LeRobot 0.5.2 installed | ✅ Done |
-| Feetech motor drivers verified | ✅ Done |
-| Waveshare board connected | ⏳ Awaiting hardware |
-| Servo IDs assigned (1–6 per arm) | ⏳ Awaiting hardware |
-| Bus communication test (ping 12 servos) | ⏳ Awaiting hardware |
-| LeRobot arm config file | ⏳ Todo |
-| First teleoperation test | ⏳ Todo |
+| Pi Zero 2W flashed with Ubuntu 24.04 | ✅ Done |
+| PL011 UART configured (disable-bt, console removed) | ✅ Done |
+| Waveshare Bus Servo Adapter (A) wired in UART-Servo mode | ✅ Done |
+| Servo communication verified (raw pyserial + scservo_sdk) | ✅ Done |
+| Per-servo configuration tool (`setup_servo.py`) | ✅ Done |
+| Joint-limit calibration tool (`calibrate.py`) | ✅ Done |
+| Servo 2 calibrated end-to-end | ✅ Done |
+| Remaining 11 servos wired + calibrated | ⏳ In progress |
+| Second arm — port strategy (Pi Zero 2W has one UART) | ⏳ Open question |
+| Teleoperation loop (`teleop.py`) | ⏳ Todo |
 | Dataset recording | ⏳ Todo |
 | Policy training | ⏳ Todo |
 

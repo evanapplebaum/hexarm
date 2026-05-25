@@ -347,3 +347,257 @@ python3 setup_servo.py --current-id 9 --new-baud 1000000 --force --baud 250000
 4. **RC warm-up explains retry success.** The line driver charges faster on retry because the parasitic capacitance is already partially charged. This is more pronounced on DIY wiring than a production PCB.
 
 5. **port_handler.py is modified — do not replace with stock version.** The resync parser lives in `readPort()`. Replacing it with the upstream SDK would re-introduce the framing error.
+
+> **2026-05-25 update — lesson #5 above is wrong.** Phase 5 below revealed the framing-error narrative was misdiagnosed. The resync logic in `port_handler.readPort()` was reverted to the SDK original. Reasoning preserved here for context; refer to Phase 5 for the corrected understanding.
+
+---
+
+## Phase 5 — SDK Path Regression and the Real Root Cause (2026-05-25)
+
+**Symptom:** With the Phase 4 fixes in place, `raw_ping.py` worked but every SDK-based script (`ping_one.py`, `calibrate.py`, `setup_servo.py`) failed with `COMM_RX_TIMEOUT` or `COMM_RX_CORRUPT`. The bug was sticky — survived reboots, survived re-seating connectors, survived `port_handler.py` edits.
+
+This phase reframes Phase 4 entirely. The framing-error theory turned out to be wrong. Two separate problems were stacked, and one was masking the other.
+
+---
+
+### Step 1 — Refactor for sharing (`_serial_utils.py`)
+
+To stop duplicating the same setup boilerplate across `ping_one.py`, `setup_servo.py`, `calibrate.py`, the code was consolidated into `software/control/_serial_utils.py`:
+
+- `set_vmin(ser, vmin=1)` — termios fix from Phase 4
+- `open_sdk_port(port, baud)` → `(port_handler, st)` — handles PortHandler boilerplate plus VMIN
+- `ping_with_retry(st, id)` / `read_pos_with_retry(st, id)` / `write_byte_with_retry(st, id, addr, val)` — wrap SDK calls with a small retry budget
+
+Also fixed: `port_handler.setupPort()` was opening pyserial with `timeout=0`, which sets `O_NONBLOCK` on the fd and **overrides any VMIN setting at the kernel level**. Changed to `timeout=0.1`, which makes pyserial use a `select()`-based timeout and lets VMIN actually take effect.
+
+**Result:** No change. SDK path still failed.
+
+---
+
+### Step 2 — Diagnostic script (`sdk_diag.py`)
+
+Built a diagnostic comparing four ping patterns against the same servo back-to-back:
+
+| Variant | Description |
+|---|---|
+| A. RAW | Verbatim `raw_ping.py` — VMIN=6, single `ser.read(6)` |
+| B. VMIN1 | Same as A but VMIN=1 |
+| C. LOOP | VMIN=1 + `ser.read(1)` × 6 (the SDK's read pattern) |
+| D. SDK | Full PortHandler + `sms_sts.ping()` stack |
+
+First run results were unexpected: **every variant returned 0 bytes**, including A (which had worked manually moments before).
+
+```
+A. RAW   (VMIN=6, read(6)): 0/5
+B. VMIN1 (VMIN=1, read(6)): 0/5
+C. LOOP  (VMIN=1, read(1) x 6): 0/5
+D. SDK   (PortHandler.ping): 0/5
+```
+
+This was the moment the framing-error theory started falling apart — if RC turnaround were the issue, raw_ping wouldn't have been intermittently working all session.
+
+---
+
+### Step 3 — Triage: power cycle, reseat, reboot, loopback
+
+Suspecting hardware fault:
+
+1. Power-cycled Waveshare board → no change
+2. Reseated JST-PH and Dupont connectors → no change
+3. Rebooted Pi → no change
+4. **Bypassed Waveshare entirely**: jumpered Pi GPIO 14 (TX) directly to GPIO 15 (RX) with a Dupont wire and wrote three bytes, expected to see them echo back:
+
+   ```python
+   ser = serial.Serial('/dev/ttyAMA0', 1000000, timeout=0.1)
+   ser.write(b'\xAA\xBB\xCC')
+   time.sleep(0.05)
+   print(ser.read(10).hex())   # Got: '' (empty)
+   ```
+
+The Pi couldn't echo its own bytes through its own UART. That eliminated the Waveshare, the servo, and the bus wiring as suspects. The problem had to be on the Pi side.
+
+---
+
+### Step 4 — The actual root cause
+
+Running:
+
+```bash
+sudo dmesg | grep -iE "uart|serial|tty(AMA|S)"
+```
+
+revealed:
+
+```
+Kernel command line: ... console=ttyAMA0,115200 ...
+[    1.871269] 3f201000.serial: ttyAMA0 ... is a PL011 rev2
+[    1.873146] printk: legacy console [ttyAMA0] enabled
+[   12.968559] systemd[1]: Expecting device dev-ttyAMA0.device - /dev/ttyAMA0...
+```
+
+And:
+
+```bash
+stty -F /dev/ttyAMA0 -a | head -1
+# speed 115200 baud; rows 24; columns 80; ...
+```
+
+`stty` reported the port speed as **115200**, even though every Python script in the project was setting it to 1,000,000. The PL011 was being held at 115200 because **a kernel serial console + `serial-getty@ttyAMA0.service` were running on `/dev/ttyAMA0`**.
+
+A getty/console on the same UART:
+
+- **Consumes incoming bytes** before pyserial's `read()` can see them
+- **Writes login prompt characters out the TX line** between reads, putting noise on the servo bus
+- **Holds the port at its console baud (115200)** at the kernel level — Python's `setBaudRate(1000000)` had been silently fighting this the whole time
+
+This single setting alone explained **every confusing symptom of Phase 4**:
+- The "5/6, never 1–4" distribution → getty was occasionally swallowing the leading 0xFF
+- The "retry works because the bus is warm" effect → coincidence; gettys are non-deterministic about which bytes they grab
+- The bus randomly going silent → getty fully active, eating everything
+- The loopback failure → getty consumed the test bytes before pyserial read them
+
+---
+
+### Step 5 — The fix
+
+Two changes on the Pi:
+
+1. **Remove the serial console** from the kernel command line. Edit `/boot/firmware/cmdline.txt` and delete `console=serial0,115200 ` (note: `serial0` is a symlink to `ttyAMA0` here because `disable-bt` routed PL011 to GPIO). The remaining `console=tty1` is fine — it's the virtual console for HDMI/log output, unrelated to the GPIO UART.
+
+2. **Disable serial-getty:**
+   ```bash
+   sudo systemctl disable --now serial-getty@ttyAMA0.service
+   sudo systemctl disable --now serial-getty@serial0.service
+   sudo reboot
+   ```
+
+Verify after reboot:
+
+```bash
+cat /proc/cmdline | grep -o "console=[^ ]*"
+# Should output:  console=tty1  (only)
+
+stty -F /dev/ttyAMA0 -a | head -1
+# Should NOT be locked to 115200 anymore
+```
+
+Easier alternative for the future: `sudo raspi-config` → Interface Options → Serial Port → login shell **NO**, hardware **YES**.
+
+---
+
+### Step 6 — Re-running `sdk_diag.py`
+
+After the reboot, the diagnostic told a completely different story:
+
+```
+A. RAW   (VMIN=6, read(6)): 5/5    dt = 0.4ms
+B. VMIN1 (VMIN=1, read(6)): 5/5    dt = 0.4ms
+C. LOOP  (VMIN=1, read(1)x6 loop): 5/5    dt = 603ms   ← see below
+D. SDK   (PortHandler.ping): 0/5   result = COMM_RX_CORRUPT, dt = 1208ms
+```
+
+**Three things to extract:**
+
+1. **All read patterns work cleanly.** Every variant returned a 6/6 response (`FF FF 02 02 00 FB`). Importantly, **no 5/6 cases appeared** — strong evidence that the "framing error at RC turnaround" theory of Phase 4 was misdiagnosis. The "missing first byte" pattern was getty interference all along.
+
+2. **The read(1)-loop (variant C) was 1500× slower than the single-read variants.** That's because the patched `port_handler.readPort()` was set to read `length+1` bytes (`target = 7`) to "absorb a dropped leading byte." For a clean 6-byte response, there is no 7th byte — so the loop burned the full 600ms deadline waiting for it.
+
+3. **The SDK variant (D) took exactly 2× the loop time (1208ms) and returned -7 (COMM_RX_CORRUPT).** That's the signature of `ping()` doing **two** transactions: the PING (succeeds, ~600ms) plus a follow-up READ of the model-number register at address 3 (corrupts, ~600ms).
+
+---
+
+### Step 7 — The SDK byte-stealing bug
+
+Tracing the second transaction inside `ping()`:
+
+1. Servo response: `FF FF 02 04 00 09 00 CHK` (8 bytes — 2-byte model number)
+2. SDK calls `port_handler.readPort(6)` (initial `wait_length - rx_length = 6 - 0`)
+3. Custom `readPort` sets `target = 7` and reads 7 bytes from the kernel: `[FF FF 02 04 00 09 00]`
+4. Resync finds `FF FF` at offset 0, returns `buf[0:length] = buf[0:6]` — **the 7th byte (`00`) is silently dropped on the floor**
+5. SDK's `rxPacket` extends `rxpacket` to 6 bytes, sees `rxpacket[PKT_LENGTH] = 0x04`, recalculates `wait_length = 4 + 3 + 1 = 8`, loops back to `readPort(2)`
+6. Kernel buffer only has 1 byte left (the `CHK`) — the other byte we needed (`00`) was consumed by step 3 and then thrown away
+7. After another 600ms wait, `rxpacket` has 7 bytes, `wait_length = 8`, `isPacketTimeout` fires → `COMM_RX_CORRUPT`
+
+**The "read length+1 to absorb a dropped byte" pattern is broken for any multi-transaction SDK call.** It works for single-shot reads (`ReadPos`, the first half of `ping()`), but `ping()` itself does two reads back-to-back and the stolen byte was the data the second read needed.
+
+---
+
+### Step 8 — Fix
+
+Reverted `port_handler.readPort()` to the original SDK implementation:
+
+```python
+def readPort(self, length):
+    if sys.version_info > (3, 0):
+        return self.ser.read(length)
+    else:
+        return [ord(ch) for ch in self.ser.read(length)]
+```
+
+With the getty gone, framing errors at the bus turnaround are no longer observed. If they ever reappear (different hardware, longer cabling), the right place to handle them is at the SDK-call level — via the existing `ping_with_retry` / `read_pos_with_retry` / `write_byte_with_retry` wrappers in `_serial_utils.py` — not by stealing bytes in `readPort`.
+
+Re-running `sdk_diag.py`:
+
+```
+A. RAW   (VMIN=6, read(6)): 5/5    dt = 0.4ms
+B. VMIN1 (VMIN=1, read(6)): 5/5    dt = 0.4ms
+C. LOOP  (VMIN=1, read(1)x6 loop): 5/5    dt = 603ms   ← (the diag still has +1 target;
+                                                          not relevant — the SDK no longer uses this pattern)
+D. SDK   (PortHandler.ping): 5/5   result = COMM_SUCCESS, model = 777, dt = 1ms
+```
+
+Variant D went from 1208ms / corrupt to **1ms / success**. End-to-end test on `calibrate.py`:
+
+```
+Opening /dev/ttyAMA0 at 1000000 baud...
+Servo ID to calibrate (1–12): 2
+  ✓ Servo 2 online (model 777)
+  ID  2  |  Live: 3567  |  >MIN=----  |   MAX=----  |   MID=----
+  ✓ MIN = 3567
+  ✓ MAX = 797
+  ✓ MID = 2402
+  Saved → ../config/limits.json
+```
+
+STS3215 reports model number **777** in `ping()`. Calibration writes recorded successfully.
+
+---
+
+### Lessons Learned (Phase 5)
+
+1. **`stty -F /dev/ttyAMA0` reporting a baud rate you didn't set is a red flag.** If the kernel says 115200 and your code sets 1Mbps, something else owns the port. Check `/proc/cmdline` for `console=ttyAMA0` / `console=serial0` and `systemctl is-enabled serial-getty@ttyAMA0.service`.
+
+2. **A pyserial loopback test is the cheapest UART sanity check available.** Jumper TX↔RX on the GPIO header. If the Pi can't echo its own bytes, every higher-level theory is wasted effort.
+
+3. **`dmesg | grep -iE "uart|serial|tty"` told us the answer in three lines.** `console=ttyAMA0,115200` + `serial-getty@ttyAMA0.service` was right there at boot — checking dmesg should be in the first ten things to do when a Pi UART misbehaves, not the last.
+
+4. **Misdiagnoses can be self-confirming.** The Phase 4 "framing error" theory was internally consistent — every observed symptom (0/5/6, never 1–4, retry helps) had a plausible explanation. None of those explanations were right. **The cure for a confirmable theory is a falsifying experiment**: in this case, the loopback test, which collapsed the whole story in one command.
+
+5. **Custom modifications to SDK internals (`port_handler.readPort`) need to be auditable for side effects across all SDK callers, not just the one you're testing.** The `length+1` trick worked for single-transaction reads and broke multi-transaction ones. If you must monkey-patch an SDK, do it at the smallest possible scope (an outer retry wrapper) and leave the inner machinery stock.
+
+6. **On a Pi, `raspi-config → Interface Options → Serial Port` correctly sets BOTH the console and the getty in one step.** Always use it instead of hand-editing `cmdline.txt` and `systemctl disable` separately. Cleaner, harder to get wrong, easier to undo.
+
+7. **Pi Zero 2W gotcha to remember:** the default Ubuntu 24.04 image ships with `console=serial0,115200` in `/boot/firmware/cmdline.txt` AND `serial-getty@ttyAMA0.service` enabled. Either alone breaks high-baud UART; together they're invisible.
+
+---
+
+### Working Configuration as of 2026-05-25
+
+```
+Raspberry Pi Zero 2W (Ubuntu 24.04 server)
+  GPIO 14 (TX)  ────────────────  TX  ┐
+  GPIO 15 (RX)  ────────────────  RX  │  Waveshare Bus Servo Adapter (A)
+  GND           ────────────────  GND ┘  (switch: UART-Servo)
+                                          │ JST-PH
+                                          ▼
+                                       STS3215 servo (model 777)
+
+UART:         /dev/ttyAMA0 (PL011)
+Baud:         1,000,000
+Console:      tty1 only (NOT serial0/ttyAMA0)
+getty:        disabled on ttyAMA0 + serial0
+SDK:          scservo_sdk (local copy), readPort = stock
+Retry layer:  software/control/_serial_utils.py
+```
+
+Verified end-to-end: `raw_ping.py`, `ping_one.py`, `sdk_diag.py` (all 5 variants), `calibrate.py` — all working with clean 6/6 responses, sub-millisecond ping times, no retries needed in normal operation.

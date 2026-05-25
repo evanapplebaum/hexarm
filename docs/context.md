@@ -55,6 +55,7 @@ GitHub: `github.com/evanapplebaum/hexarm`
 - **Connection to driver boards:** UART GPIO pins (one board per arm)
 - **UART setup:** PL011 hardware UART freed from Bluetooth via `dtoverlay=disable-bt` + `enable_uart=1` in `/boot/firmware/config.txt` — exposes `/dev/ttyAMA0` on GPIO 14 (TX) and GPIO 15 (RX)
   - Pi Zero 2W has two UARTs: PL011 (hardware, clock-independent, reliable at 1Mbps) and mini-UART (CPU-clock-dependent, unreliable at high baud). PL011 is assigned to Bluetooth by default; disable-bt overlay frees it.
+- **Serial console removed (2026-05-25):** the default Ubuntu image puts `console=serial0,115200` in `/boot/firmware/cmdline.txt` and enables `serial-getty@ttyAMA0.service`. Either alone breaks high-baud servo comms by holding the port and eating bytes. Both removed. Verify with `cat /proc/cmdline` (should show only `console=tty1`) and `systemctl is-enabled serial-getty@ttyAMA0.service` (should be `disabled`).
 - **Wiring to Waveshare board (UART-Servo mode):** Pi GPIO14/TX → Board RX, Pi GPIO15/RX → Board TX, Pi GND → Board GND
 - **Known dirty config:** `dtoverlay=dwc2,dr_mode=peripheral` and `modules-load=dwc2,g_ether` still in boot config from USB gadget mode attempts — harmless but should be cleaned up
 
@@ -98,17 +99,21 @@ hexarm/
 │   └── urdf/
 ├── software/
 │   ├── control/                        ← host-side Python scripts (run from repo root)
+│   │   ├── _serial_utils.py            ← shared SDK helpers: open_sdk_port, retry wrappers (use these in new scripts)
 │   │   ├── ping_one.py                 ← ping a single servo (CLI: --port, --id, --baud)
 │   │   ├── raw_ping.py                 ← raw pyserial diagnostic, bypasses SDK entirely
 │   │   ├── baud_scan.py                ← scans all baud rates × IDs 1–20 for any response
 │   │   ├── setup_servo.py              ← flash ID, return delay, baud rate to one servo at a time
 │   │   ├── ping_stress.py              ← stress-ping a servo N times, logs results to CSV
+│   │   ├── sdk_diag.py                 ← diagnostic — runs 5 read patterns, isolates SDK vs raw-path bugs
+│   │   ├── calibrate.py                ← interactive MIN/MAX/MID joint-limit calibration → config/limits.json
+│   │   ├── teleop.py                   ← STUB ONLY — currently has unfixed `os` import bug, no SDK calls yet
 │   │   ├── config.py                   ← motor IDs, port assignments (needs rewrite — Pi 5 refs)
-│   │   └── read_register.py            ← read arbitrary EPROM/SRAM register (needs VMIN fix)
+│   │   └── read_register.py            ← read arbitrary EPROM/SRAM register (raw pyserial, doesn't need VMIN fix)
 │   ├── scservo_sdk/                    ← Feetech official SDK (NOT a pip package — local copy)
-│   │   ├── protocol_packet_handler.py  ← packet framing/parsing (keep UNMODIFIED — see debug notes)
+│   │   ├── protocol_packet_handler.py  ← packet framing/parsing — UNMODIFIED, keep upstream
 │   │   ├── sms_sts.py                  ← STS/SMS series class (correct for STS3215)
-│   │   ├── port_handler.py
+│   │   ├── port_handler.py             ← stock readPort; only edit is timeout=0.1 (so VMIN works)
 │   │   └── ...
 │   ├── STServo_Python/                 ← DELETED (Windows venv, redundant with scservo_sdk/)
 │   ├── arduino/
@@ -152,7 +157,8 @@ Both SDKs are from Feetech/Waveshare and use identical packet protocols for STS3
 - `scservo_sdk` — Feetech's original SDK; uses class `sms_sts` for STS/SMS servos; **this is the one in use**
 - `STservo_sdk` — Waveshare's renamed version; uses class `sts` (functionally identical); **deleted from repo** (Windows venv, redundant)
 - "SCServo" is Feetech's brand name for the whole ecosystem, not a specific protocol
-- `port_handler.py` has been modified with a resync parser in `readPort()` — do NOT replace with stock version
+- `port_handler.py` has one minimal change vs. upstream — `setupPort()` opens pyserial with `timeout=0.1` instead of `timeout=0`. The `timeout=0` default sets `O_NONBLOCK` on the fd, which makes `ser.read()` return immediately regardless of VMIN, breaking all SDK reads. `timeout=0.1` removes `O_NONBLOCK` and lets the VMIN=1 termios setting (applied in `_serial_utils.open_sdk_port`) actually take effect.
+- `readPort()` is stock — a previous custom resync layer was reverted on 2026-05-25 (see Phase 5 of `docs/debugging/servo-comms-debug-log.md`). Any per-call retry/error-recovery now lives in `software/control/_serial_utils.py`.
 
 ### Mac Development Environment
 - **Venv:** `hexarm/.venv` (Python 3.12)
@@ -201,40 +207,54 @@ Broadcast ID = 0xFE (254) — no response expected, servo acts but does not repl
 
 ## Servo Communication — RESOLVED ✅
 
-**Status as of 2026-05-20:** All 12 servos responding. Two separate issues encountered and resolved.
+**Status as of 2026-05-25:** End-to-end SDK path working. `calibrate.py` runs to completion. Three distinct issues encountered and resolved across multiple sessions.
 
 ### Issue 1: No response at all (resolved 2026-05-19)
 **Root cause: Wrong UART wiring.** The Waveshare Bus Servo Adapter (A) uses **straight-through wiring** (TX→TX, RX→RX), NOT the standard crossed wiring. The board labels its pins from the host's perspective — counterintuitive and underdocumented. See `docs/debugging/servo-comms-debug-log.md` Phases 1–3.
 
-### Issue 2: Intermittent responses — 0/5/6 bytes, never 1–4 (resolved 2026-05-20)
-**Root cause: UART framing error from line-driver turn-on transient.**
+### Issue 2: Intermittent responses — superseded by Issue 3 (originally "resolved" 2026-05-20)
+The Phase 4 investigation diagnosed an intermittent 0/5/6-byte response pattern as a UART framing error at the half-duplex bus turnaround, and added a custom resync parser to `port_handler.readPort()`. That diagnosis turned out to be wrong — the real cause was Issue 3 below. The Phase 4 narrative is preserved in `docs/debugging/servo-comms-debug-log.md` as a cautionary record of how a self-consistent but incorrect theory can survive without falsification testing.
 
-At the TX→RX bus turnaround, the servo's line driver takes time to charge the bus back to idle-high (RC rise time: τ = R_driver × C_bus). During this rise, the PL011 UART samples what looks like a valid start bit (line still low), then reads garbage data bits — a **framing error**. The Linux tty layer, under its default `IGNPAR` setting, **silently discards** the framing-errored byte with no warning to userspace.
+### Issue 3: Serial console + SDK byte-stealing (resolved 2026-05-25)
+**Root causes (two stacked):**
 
-Because only the **first byte** of the response is at the turnaround boundary (all subsequent bytes arrive cleanly and contiguously), the only possible byte counts are 0, 5, or 6. Counts of 1–4 are physically impossible under this failure mode — and empirically, none were observed across hundreds of pings.
+**(a) Serial console on `/dev/ttyAMA0`.** The default Ubuntu 24.04 image for Pi Zero 2W ships with `console=serial0,115200` in `/boot/firmware/cmdline.txt` AND `serial-getty@ttyAMA0.service` enabled. Either alone holds the PL011 UART at 115200 baud at the kernel level, consumes incoming bytes before pyserial can read them, and writes login-prompt characters out the TX line. This invisibly corrupted every UART transaction on the project for weeks; the previously-observed "framing error" pattern was getty interference, not a real RC transient.
 
-The 0/6 case: the framing error hits the **outgoing ping's** first byte, corrupting it — the servo rejects the whole packet and sends no response at all.
+**(b) Custom `readPort()` stealing bytes from multi-transaction SDK calls.** The Phase 4 resync layer in `port_handler.readPort()` read `length+1` bytes from the kernel into a local buffer, then sliced and returned only `length`. For single-transaction SDK calls (like `ReadPos`), this was harmless. For `ping()` — which internally does two transactions (PING, then a READ of the model-number register at address 3) — the extra byte from the first read was the *first byte of the second response*, and dropping it caused the second transaction to time out short with `COMM_RX_CORRUPT`.
 
-**Fix implemented in `scservo_sdk/port_handler.py` and `control/raw_ping.py`:**
-1. **Resync parser** — reads `length+1` bytes; finds `FF FF` header. If only a lone `FF` is found (first 0xFF dropped by tty layer), prepends a synthetic 0xFF to reconstruct the packet. Checksum `~(ID+LEN+ERR)&0xFF` confirms integrity.
-2. **Retry on empty response** (MAX_RETRIES=2 in `raw_ping.py`) — the 0/6 case resolves on retry because the line driver is "warm" from the first transmission; the RC capacitance is already partially charged and the transient is smaller on subsequent attempts.
+**Fixes:**
+- Remove `console=serial0,115200` from `/boot/firmware/cmdline.txt`, leave `console=tty1`.
+- `sudo systemctl disable --now serial-getty@ttyAMA0.service serial-getty@serial0.service`
+- Reboot.
+- Revert `port_handler.readPort()` to upstream SDK (`return self.ser.read(length)`).
+- Retry and error recovery now live in `software/control/_serial_utils.py` wrappers (`ping_with_retry`, `read_pos_with_retry`, `write_byte_with_retry`) — the correct scope.
 
-**What was ruled out:**
-- Return delay (reg 7): doesn't help — the transient is physically tied to the first byte regardless of the silence period before it.
-- Baud rate reduction to 250kbps: doesn't help — the RC time constant is set by hardware, independent of bit timing.
+**Two supporting fixes that survived from the wrong diagnosis (still required):**
+- `port_handler.setupPort()` opens pyserial with `timeout=0.1` (not `timeout=0`). The `timeout=0` default sets `O_NONBLOCK` on the fd, which makes `ser.read()` return 0 bytes immediately regardless of VMIN.
+- `_serial_utils.set_vmin(ser, vmin=1)` sets termios `VMIN=1` after open so that `ser.read(1)` calls inside the SDK actually block until a byte arrives.
 
-**VMIN/VTIME note:** pyserial sets `VMIN=0 VTIME=0` on port open, which persists after `close()`. With VMIN=0, `read(n)` returns immediately with 0 bytes if nothing has arrived yet, making missed responses look identical to an empty buffer. Fix: call `termios.tcsetattr()` to set `VMIN=n` after opening the port. See `raw_ping.py:set_vmin()`.
+**Quick verification the Pi UART is healthy for servo use:**
 
-### Confirmed working configuration
-- **Host:** Raspberry Pi Zero 2W
+```bash
+cat /proc/cmdline | grep -o "console=[^ ]*"        # should show only:  console=tty1
+systemctl is-enabled serial-getty@ttyAMA0.service  # should output:     disabled
+stty -F /dev/ttyAMA0 -a | head -1                  # should NOT be stuck at 115200
+python3 software/control/raw_ping.py --id 2        # should return clean 6/6 bytes
+```
+
+### Confirmed working configuration (2026-05-25)
+- **Host:** Raspberry Pi Zero 2W (Ubuntu 24.04 server)
 - **Interface:** Hardware UART `/dev/ttyAMA0` (PL011, GPIO 14/15)
 - **Wiring:** Pi TX (GPIO 14) → Board TX, Pi RX (GPIO 15) → Board RX, GND → GND
 - **Board mode switch:** UART-Servo
 - **Board power:** 12V barrel jack only
 - **Baud rate:** 1,000,000 bps
-- **All 12 servos responding:** IDs 1–12 ✅
+- **Console on ttyAMA0:** DISABLED (cmdline.txt + serial-getty)
+- **SDK readPort:** stock upstream + `timeout=0.1` setup + `VMIN=1` via `_serial_utils.open_sdk_port`
+- **Verified end-to-end:** `raw_ping.py`, `ping_one.py`, `sdk_diag.py` (all 5 variants 5/5), `calibrate.py`
+- **STS3215 reports model number 777** (returned from `ping()`)
 
-See `docs/debugging/servo-comms-debug-log.md` for the full narrative.
+See `docs/debugging/servo-comms-debug-log.md` Phase 5 for the actual root cause and full chronology.
 
 ---
 
@@ -247,20 +267,26 @@ See `docs/debugging/servo-comms-debug-log.md` for the full narrative.
 | pyserial installed in Mac venv | ✅ Done |
 | scservo_sdk copied into software/ | ✅ Done |
 | ping_one.py, raw_ping.py, baud_scan.py, setup_servo.py created | ✅ Done |
-| Framing error resync parser in port_handler.py + raw_ping.py | ✅ Done (2026-05-20) |
+| _serial_utils.py (shared SDK helpers + retry wrappers) | ✅ Done (2026-05-25) |
+| sdk_diag.py (read-pattern diagnostic) | ✅ Done (2026-05-25) |
+| Pi serial console disabled (cmdline.txt + serial-getty) | ✅ Done (2026-05-25) |
+| port_handler.py reverted to upstream readPort | ✅ Done (2026-05-25) |
 | LeRobot installed in Mac venv | ❌ Not possible (Intel Mac, torch 2.7+) |
 | Mac → board → servo communication working | ⚠️ Not yet tested (USB-Servo mode) |
-| Pi → board → servo communication working | ✅ Done (2026-05-19) |
+| Pi → board → servo communication working | ✅ Done |
 | Pi Zero 2W setup (Ubuntu 24.04) | ✅ Done |
 | Pi UART configured (ttyAMA0) | ✅ Done |
 | Driver board connected to Pi | ✅ Done |
-| Servo IDs assigned (1–6 leader, 7–12 follower) | ✅ Done (2026-05-20) |
-| Bus communication test (ping all 12 servos) | ✅ Done (2026-05-20) |
+| Servo IDs assigned (1–6 leader, 7–12 follower) | ⚠️ Only servo 2 currently on bus; reassign others when wired |
+| Bus communication test (ping all servos) | ⚠️ Only ID 2 verified end-to-end on 2026-05-25 |
+| SDK path (ping_one, calibrate) working | ✅ Done (2026-05-25) |
+| Joint limit calibration (calibrate.py) | ✅ Working — servo 2 calibrated (3567/797/2402) |
+| Joint limit calibration for all 12 servos | ⏳ Todo (wire remaining servos first) |
 | config.py rewrite (remove LeRobot, update for Pi Zero 2W) | ⏳ Todo |
-| read_register.py VMIN fix | ⏳ Todo |
-| Second arm port strategy for Pi Zero 2W | ⏳ Todo |
-| Joint limit calibration (calibrate.py) | ⏳ Next up |
-| First teleoperation test (teleop.py from scratch) | ⏳ Todo |
+| teleop.py (currently stub with `os` import bug) | ⏳ Todo — full implementation |
+| Second arm port strategy for Pi Zero 2W (single UART) | ⏳ Todo — USB adapter or software UART |
+| .gitignore for CSV stress-test artifacts | ⏳ Todo |
+| First teleoperation test | ⏳ Todo |
 | Dataset recording | ⏳ Todo |
 | Policy training | ⏳ Todo |
 
@@ -345,8 +371,13 @@ This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `
 - UART framing errors — what "corrupting a start bit" means on a µs scale (RC transient, PL011 error flag)
 - Linux tty IGNPAR — silent byte discard on framing errors, no userspace notification
 - VMIN/VTIME POSIX terminal settings — how they control read() blocking, pyserial persistence bug
-- Resync parser design — using checksum as integrity check to recover from a dropped header byte
-- RC charging analogy for line-driver turn-on transient — τ=RC, capacitance sources, retry warm-up effect
+- `O_NONBLOCK` override of VMIN — why `pyserial(timeout=0)` defeats termios VMIN settings, and how `timeout=0.1` fixes it
+- Linux serial console + `serial-getty@ttyAMA0.service` — how a console on the same UART silently breaks user-space communication (eats RX bytes, writes prompt to TX, holds baud at 115200). Always check `cat /proc/cmdline` and `systemctl is-enabled serial-getty@ttyAMA0.service` before anything else when a Pi UART misbehaves.
+- Pi GPIO TX↔RX loopback testing — cheapest UART sanity check, falsifies all higher-level theories at once
+- Falsifying experiments vs. self-consistent theory — Phase 4's framing-error story matched every symptom but was wrong; the loopback test collapsed it in one command
+- Resync parser design — using checksum as integrity check to recover from a dropped header byte (the Phase 4 implementation; not currently in use)
+- The byte-stealing pitfall — reading N+1 bytes and returning N silently steals data from the next read; breaks multi-transaction SDK calls like `ping()` (which does PING + read-model)
+- STS3215 model number reported via `ping()` = **777**
 - STS3215 EPROM write workflow — unLockEprom → write → LockEprom, broadcast --force mode
 - Baud rate register (reg 6) and BAUD_MAP — value encoding, power-cycle requirement
 - Return delay register (reg 7) — what it does (silence before response) and what it doesn't fix (framing errors)
@@ -363,4 +394,4 @@ This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `
 
 This is the opposite of standard UART convention. The board labels its UART pins from the host's perspective. See `docs/debugging/servo-comms-debug-log.md`.
 
-*Last updated: 2026-05-20*
+*Last updated: 2026-05-25*

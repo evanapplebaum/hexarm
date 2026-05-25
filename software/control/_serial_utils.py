@@ -2,56 +2,52 @@
 """
 _serial_utils.py
 ----------------
-Shared helpers for STS3215 SDK-based control scripts.
+Shared helpers for STS3215 SDK-based control scripts. Three responsibilities:
 
-Centralises three concerns that every SDK-using script needs to get right:
+  1. VMIN fix              — set termios VMIN=1 after open so that the SDK's
+                             ser.read() calls block until a byte arrives
+                             instead of returning empty immediately.
+  2. Port open boilerplate — wrap PortHandler + sms_sts construction, baud
+                             setting, and VMIN; return (port_handler, st).
+  3. Retry wrappers        — wrap ping()/ReadPos()/write1ByteTxRx() with a
+                             small retry loop. Cheap insurance for any
+                             residual flakiness; not currently load-bearing
+                             on a healthy bus.
 
-  1. VMIN fix              — set termios VMIN=1 so SDK read(1) calls block
-                             until at least one byte arrives.
-  2. Port open boilerplate — open PortHandler, set baud, apply VMIN, return
-                             (port_handler, st) pair.
-  3. Retry wrappers        — wrap ping()/ReadPos() with a small retry loop
-                             to absorb the 0/6 framing-error case at bus
-                             turnaround.
+Background — two pyserial gotchas this file handles
+---------------------------------------------------
+  * pyserial's timeout=0 sets O_NONBLOCK on the fd, which makes ser.read()
+    return immediately regardless of VMIN. port_handler.setupPort() now
+    opens with timeout=0.1 to avoid this; see port_handler.py.
 
-Background
-----------
-The Waveshare bus servo board is half-duplex. At the TX→RX turnaround the
-servo's line driver takes time to charge the bus back to idle-high (RC rise
-time). During that window the PL011 UART samples what looks like a start bit
-on a low line and reads a framing-errored byte. The Linux tty layer under its
-default IGNPAR setting silently discards that byte.
+  * pyserial's default VMIN=0 also lets ser.read(n) return short reads (or
+    0 bytes) when bytes haven't arrived yet. Setting VMIN=1 via termios
+    after open fixes this for the SDK's read-one-byte-at-a-time pattern.
 
-There are two failure modes:
+History
+-------
+A previous version of this module + a custom resync parser in
+port_handler.readPort() were built around the theory that the PL011 was
+dropping the leading 0xFF of responses to a UART framing error at the bus
+turnaround. That theory was wrong — the real cause was a serial console
+(console=serial0,115200 in cmdline.txt) and serial-getty@ttyAMA0.service
+contesting /dev/ttyAMA0 with our scripts. Once those were disabled, clean
+6/6 responses came back consistently and the resync parser was removed
+(it had also been silently breaking multi-transaction SDK calls like
+ping() by stealing the leading byte of the second transaction's response).
 
-  * 5/6 bytes received — first 0xFF of the response header is dropped.
-    Recovered inside port_handler.readPort() via the resync parser
-    (reconstructs the missing 0xFF and validates checksum).
-
-  * 0/6 bytes received — outgoing instruction itself was corrupted; servo
-    never replies. Recovered by retrying — on the second attempt the line
-    driver is "warm" and the transient is smaller. This is what the retry
-    wrappers in this file are for.
-
-Two more pyserial gotchas this file handles:
-
-  * pyserial's timeout=0 sets O_NONBLOCK, which makes read() return
-    immediately regardless of VMIN. port_handler.setupPort() now opens with
-    timeout=0.1 so VMIN is respected; see port_handler.py for the change.
-
-  * Default VMIN=0 VTIME=0 still lets read() return 0 bytes when nothing
-    has arrived. Setting VMIN=1 fixes this for the read-one-byte-at-a-time
-    loop inside port_handler.readPort().
-
-See docs/debugging/servo-comms-debug-log.md for the full investigation and
-raw_ping.py for the SDK-bypassing ground-truth implementation.
+See docs/debugging/servo-comms-debug-log.md Phase 5 for the full story.
 
 USAGE:
-    from _serial_utils import open_sdk_port, ping_with_retry, read_pos_with_retry
+    from _serial_utils import (
+        open_sdk_port, ping_with_retry,
+        read_pos_with_retry, write_byte_with_retry,
+    )
 
     port_handler, st = open_sdk_port("/dev/ttyAMA0", 1_000_000)
     ok, model = ping_with_retry(st, servo_id=1)
     pos, ok   = read_pos_with_retry(st, servo_id=1)
+    ok, _     = write_byte_with_retry(st, servo_id=1, addr=40, value=0)
 """
 
 import os
@@ -133,15 +129,16 @@ def open_sdk_port(port: str, baud: int):
 # ---------------------------------------------------------------------------
 
 def ping_with_retry(st, servo_id: int, max_retries: int = DEFAULT_MAX_RETRIES):
-    """Ping a servo, retrying on framing errors.
+    """Ping a servo, retrying on transient comm errors.
 
     Returns (ok: bool, model_number: int). On failure model_number is 0.
 
-    Note: the SDK's ping() internally does TWO transactions — the ping
-    itself, then a read of the model-number register. Either one can hit a
-    framing error. The retry here covers the case where one of them returns
-    0/6 bytes; the resync parser in port_handler covers the 5/6 case
-    transparently.
+    The SDK's ping() internally does TWO transactions — the ping itself,
+    then a read of the model-number register at address 3. Either one
+    failing returns a non-COMM_SUCCESS result here. On a healthy bus
+    (console removed, getty disabled), this normally succeeds on the
+    first try in sub-millisecond time. The retry is cheap insurance
+    against any rare transient.
     """
     last_result = None
     for attempt in range(max_retries + 1):
@@ -153,7 +150,7 @@ def ping_with_retry(st, servo_id: int, max_retries: int = DEFAULT_MAX_RETRIES):
 
 
 def read_pos_with_retry(st, servo_id: int, max_retries: int = DEFAULT_MAX_RETRIES):
-    """Read present position, retrying on framing errors.
+    """Read present position, retrying on transient comm errors.
 
     Returns (pos: int, ok: bool). On failure pos is 0.
     """
@@ -166,14 +163,17 @@ def read_pos_with_retry(st, servo_id: int, max_retries: int = DEFAULT_MAX_RETRIE
 
 def write_byte_with_retry(st, servo_id: int, addr: int, value: int,
                           max_retries: int = DEFAULT_MAX_RETRIES):
-    """Write a single byte to a register, retrying on framing errors.
+    """Write a single byte to a register, retrying on transient comm errors.
 
     Returns (ok: bool, result_code). Useful for SRAM/EPROM writes that
-    expect a status packet back — those acks are subject to the same
-    turnaround framing error as ping responses.
+    expect a status packet back — those acks go through the same RX path
+    as ping responses and can hit the same transient errors.
 
     Caller is responsible for unlocking EPROM beforehand if writing to one
-    of the EPROM registers.
+    of the EPROM registers (registers 0–13). Do not use with broadcast
+    ID (0xFE) — broadcast writes don't reply, so every "retry" would fail
+    after a full timeout. Use st.write1ByteTxRx(0xFE, ...) directly for
+    broadcast.
     """
     last_result = None
     for attempt in range(max_retries + 1):
