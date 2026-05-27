@@ -26,7 +26,7 @@ CONTROLS (during measurement):
   Enter — record current live position into the active slot
   q     — quit without saving this servo
 
-SETUP:
+SETUP: 
   Torque is disabled on the servo being calibrated so it can be moved freely by hand.
   All other servos on the bus are unaffected.
 

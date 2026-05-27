@@ -21,7 +21,6 @@ import sys
 import os
 import argparse
 
-# Local control package — _serial_utils handles VMIN fix + SDK retry wrappers.
 sys.path.insert(0, os.path.dirname(__file__))
 from _serial_utils import open_sdk_port, ping_with_retry
 
