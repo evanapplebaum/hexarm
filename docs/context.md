@@ -47,17 +47,28 @@ GitHub: `github.com/evanapplebaum/hexarm`
 - Compatible with ST/SC series Feetech servos including STS3215
 - **Official Python SDK:** STservo_sdk (see software section)
 
-### Compute — Raspberry Pi Zero 2W
-- **Status:** ✅ SSHable — UART setup in progress (2026-05-19)
-- **OS:** Ubuntu 24.04 Server (fresh flash via Raspberry Pi Imager)
-- **Network:** WiFi on "Apples" home network — IP `192.168.86.121`
+### Compute — Jetson Orin Nano Super
+- **Status:** ✅ SSHable as of 2026-05-26
+- **OS:** JetPack 6.2 (Ubuntu 22.04-based, with CUDA, cuDNN, TensorRT)
+- **Hostname:** `eka-orin`
+- **Username:** `evan0h`
+- **Network:** WiFi — IP TBD (use mDNS `eka-orin.local` for now)
+- **SSH:** `ssh evan0h@eka-orin.local` — VS Code Remote SSH confirmed working
+- **Display note:** Carrier board has DisplayPort only (no HDMI). Passive HDMI↔DP cable does NOT work — requires an active DisplayPort → HDMI adapter for initial GUI setup.
+- **Post-setup plan:** Disable GUI after oem-config to reclaim ~800MB RAM; operate permanently headless
+- **Connection to driver boards:** UART GPIO pins (one board per arm) — specific UART device TBD pending Jetson UART mapping
+- **UART note:** Jetson Orin Nano Super exposes multiple UART ports via 40-pin GPIO header. Unlike Pi, no Bluetooth overlay conflict. Exact device nodes (e.g. `/dev/ttyTHS*`) to be confirmed after boot.
+- **Serial console risk:** Same issue as Pi may apply — verify no getty or console is bound to the UART used for servos before bringing up servo comms. Check `cat /proc/cmdline` and `systemctl is-enabled serial-getty@<device>.service`.
+
+### Compute — Raspberry Pi Zero 2W (retired — kept for UART debugging reference)
+- **Status:** Was active compute; replaced by Jetson Orin Nano Super (2026-05-26)
+- **OS:** Ubuntu 24.04 Server
+- **Network:** WiFi "Apples" — IP `192.168.86.121`
 - **SSH:** `ssh ekapi@eka-pi02w.local` or `ssh ekapi@192.168.86.121`
-- **Connection to driver boards:** UART GPIO pins (one board per arm)
-- **UART setup:** PL011 hardware UART freed from Bluetooth via `dtoverlay=disable-bt` + `enable_uart=1` in `/boot/firmware/config.txt` — exposes `/dev/ttyAMA0` on GPIO 14 (TX) and GPIO 15 (RX)
-  - Pi Zero 2W has two UARTs: PL011 (hardware, clock-independent, reliable at 1Mbps) and mini-UART (CPU-clock-dependent, unreliable at high baud). PL011 is assigned to Bluetooth by default; disable-bt overlay frees it.
-- **Serial console removed (2026-05-25):** the default Ubuntu image puts `console=serial0,115200` in `/boot/firmware/cmdline.txt` and enables `serial-getty@ttyAMA0.service`. Either alone breaks high-baud servo comms by holding the port and eating bytes. Both removed. Verify with `cat /proc/cmdline` (should show only `console=tty1`) and `systemctl is-enabled serial-getty@ttyAMA0.service` (should be `disabled`).
-- **Wiring to Waveshare board (UART-Servo mode):** Pi GPIO14/TX → Board RX, Pi GPIO15/RX → Board TX, Pi GND → Board GND
-- **Known dirty config:** `dtoverlay=dwc2,dr_mode=peripheral` and `modules-load=dwc2,g_ether` still in boot config from USB gadget mode attempts — harmless but should be cleaned up
+- **UART setup:** PL011 freed from Bluetooth via `dtoverlay=disable-bt` + `enable_uart=1` → `/dev/ttyAMA0` on GPIO 14/15
+  - Pi Zero 2W: PL011 = hardware UART (reliable at 1Mbps); mini-UART = CPU-clock-dependent (unreliable). PL011 assigned to BT by default; overlay frees it.
+- **Serial console removed (2026-05-25):** Default Ubuntu image puts `console=serial0,115200` in `/boot/firmware/cmdline.txt` and enables `serial-getty@ttyAMA0.service` — either alone holds the port and eats bytes, silently breaking servo comms. Both removed. This same issue is likely to appear on the Jetson.
+- **Wiring to Waveshare board (UART-Servo mode):** Pi GPIO14/TX → Board TX, Pi GPIO15/RX → Board RX, GND → GND (straight-through, NOT crossed)
 
 ### Vision (planned)
 - Wrist-mounted camera and/or overhead workspace camera
@@ -72,6 +83,8 @@ hexarm/
 ├── docs/
 │   ├── context.md                      ← this file (AI handoff doc)
 │   ├── kinematics.md                   ← kinematics notes and derivations
+│   ├── debugging/
+│   │   └── servo-comms-debug-log.md    ← full chronology of UART/SDK debugging (Phases 1–5); read before touching servo comms
 │   ├── images/
 │   └── documentation/                  ← datasheets and manuals
 │       ├── ST3215 Communication Manual.pdf
@@ -143,7 +156,7 @@ hexarm/
 ## Software Stack
 
 ```
-LeRobot policy / teleop loop        (Pi only — not usable on Intel Mac)
+LeRobot policy / teleop loop        (Jetson — ARM64 + CUDA, torch works; NOT usable on Intel Mac)
         ↓
 FeetechMotorsBus                    (register map abstraction)
         ↓
@@ -170,11 +183,12 @@ Both SDKs are from Feetech/Waveshare and use identical packet protocols for STS3
   - Port shows as `usbmodem` (USB CDC) not `usbserial` (CH340 with driver)
 - **SDK in use:** `scservo_sdk` (in `software/scservo_sdk/`, imported via `sys.path.insert`)
 
-### LeRobot (Pi — future)
+### LeRobot (Jetson — target platform)
 - Version: 0.5.2
 - Feetech driver: `lerobot.motors.feetech.feetech.FeetechMotorsBus`
 - Python 3.12 required (numba constraint: >=3.9, <3.13)
-- Venv on Pi: `source ~/lerobot-env/bin/activate`
+- ARM64 + CUDA on Jetson → torch 2.7+ installs normally (unlike Intel Mac)
+- Venv on Jetson: TBD (was `source ~/lerobot-env/bin/activate` on Pi)
 
 ---
 
@@ -262,29 +276,34 @@ See `docs/debugging/servo-comms-debug-log.md` Phase 5 for the actual root cause 
 
 | Task | Status |
 |---|---|
-| LeRobot 0.5.2 installed (Pi) | ✅ Done |
+| **Compute** | |
+| Jetson Orin Nano Super — JetPack 6.2 flash | ⚠️ In progress (2026-05-26, Balena Etcher) |
+| Jetson — oem-config first-boot wizard | ⏳ Todo |
+| Jetson — SSH access configured | ⏳ Todo |
+| Jetson — GUI disabled (headless mode) | ⏳ Todo |
+| Jetson — UART device nodes confirmed for servo chains | ⏳ Todo |
+| Jetson — serial console verified off UART used for servos | ⏳ Todo |
+| **Software** | |
 | Mac venv created (Python 3.12) | ✅ Done |
 | pyserial installed in Mac venv | ✅ Done |
 | scservo_sdk copied into software/ | ✅ Done |
 | ping_one.py, raw_ping.py, baud_scan.py, setup_servo.py created | ✅ Done |
 | _serial_utils.py (shared SDK helpers + retry wrappers) | ✅ Done (2026-05-25) |
 | sdk_diag.py (read-pattern diagnostic) | ✅ Done (2026-05-25) |
-| Pi serial console disabled (cmdline.txt + serial-getty) | ✅ Done (2026-05-25) |
 | port_handler.py reverted to upstream readPort | ✅ Done (2026-05-25) |
+| LeRobot 0.5.2 installed (Jetson) | ⏳ Todo |
 | LeRobot installed in Mac venv | ❌ Not possible (Intel Mac, torch 2.7+) |
+| **Hardware / Servos** | |
 | Mac → board → servo communication working | ⚠️ Not yet tested (USB-Servo mode) |
-| Pi → board → servo communication working | ✅ Done |
-| Pi Zero 2W setup (Ubuntu 24.04) | ✅ Done |
-| Pi UART configured (ttyAMA0) | ✅ Done |
-| Driver board connected to Pi | ✅ Done |
+| Jetson → board → servo communication working | ⏳ Todo |
+| Driver board UART wiring to Jetson | ⏳ Todo |
 | Servo IDs assigned (1–6 leader, 7–12 follower) | ⚠️ Only servo 2 currently on bus; reassign others when wired |
-| Bus communication test (ping all servos) | ⚠️ Only ID 2 verified end-to-end on 2026-05-25 |
-| SDK path (ping_one, calibrate) working | ✅ Done (2026-05-25) |
-| Joint limit calibration (calibrate.py) | ✅ Working — servo 2 calibrated (3567/797/2402) |
+| Bus communication test (ping all servos) | ⚠️ Only ID 2 verified end-to-end (2026-05-25, on Pi) |
+| SDK path (ping_one, calibrate) working on Jetson | ⏳ Todo |
 | Joint limit calibration for all 12 servos | ⏳ Todo (wire remaining servos first) |
-| config.py rewrite (remove LeRobot, update for Pi Zero 2W) | ⏳ Todo |
+| **Application** | |
+| config.py rewrite (Jetson ports, remove Pi 5 / Pi Zero 2W refs) | ⏳ Todo |
 | teleop.py (currently stub with `os` import bug) | ⏳ Todo — full implementation |
-| Second arm port strategy for Pi Zero 2W (single UART) | ⏳ Todo — USB adapter or software UART |
 | .gitignore for CSV stress-test artifacts | ⏳ Todo |
 | First teleoperation test | ⏳ Todo |
 | Dataset recording | ⏳ Todo |
@@ -330,7 +349,18 @@ ls /dev/ttyAMA* /dev/ttyS*
 cat /proc/cmdline
 ```
 
-### Pi SSH Quick Reference
+### Jetson SSH Quick Reference
+
+```bash
+ssh evan0h@eka-orin.local    # mDNS hostname
+ssh evan0h@<jetson-ip>       # direct IP (faster, more reliable — IP TBD)
+
+# If SSH fails with "REMOTE HOST IDENTIFICATION HAS CHANGED" (happens after reflash):
+ssh-keygen -R eka-orin.local  # removes stale host key from ~/.ssh/known_hosts
+# Then retry ssh normally.
+```
+
+### Pi SSH Quick Reference (retired — kept for reference)
 
 ```bash
 ssh ekapi@eka-pi02w.local     # mDNS hostname (may be slow to resolve)
@@ -394,4 +424,4 @@ This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `
 
 This is the opposite of standard UART convention. The board labels its UART pins from the host's perspective. See `docs/debugging/servo-comms-debug-log.md`.
 
-*Last updated: 2026-05-25*
+*Last updated: 2026-05-26*
