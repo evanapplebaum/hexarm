@@ -75,7 +75,7 @@ def main():
     )
     parser.add_argument('--id',    type=int, default=1,
                         help='Servo ID to ping')
-    parser.add_argument('--port',  default='/dev/ttyAMA0')
+    parser.add_argument('--port',  default='/dev/ttyACM0')
     parser.add_argument('--baud',  type=int, default=1_000_000)
     parser.add_argument('--count', type=int, default=50,
                         help='Number of pings to send')

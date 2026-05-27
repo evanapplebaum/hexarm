@@ -62,7 +62,7 @@ from _serial_utils import (
 REG_TORQUE_ENABLE = 40  # SRAM — 0 = torque off (free to move), 1 = torque on
 
 # --- defaults ---
-DEFAULT_PORT  = "/dev/ttyAMA0"
+DEFAULT_PORT  = "/dev/ttyACM0"
 DEFAULT_BAUD  = 1_000_000
 
 # Path to limits file — relative to this script's location

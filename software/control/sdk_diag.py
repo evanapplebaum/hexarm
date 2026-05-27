@@ -203,7 +203,7 @@ def variant_warm(port, baud, sid, attempts, gap_ms):
 
 def main():
     ap = argparse.ArgumentParser()
-    ap.add_argument("--port", default="/dev/ttyAMA0")
+    ap.add_argument("--port", default="/dev/ttyACM0")
     ap.add_argument("--baud", type=int, default=1_000_000)
     ap.add_argument("--id", type=int, default=2)
     ap.add_argument("--n", type=int, default=5,

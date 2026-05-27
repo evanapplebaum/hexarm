@@ -5,9 +5,9 @@ ping_one.py
 First-contact test for a single STS3215 servo via scservo_sdk.
 Pings servo ID 1 and prints whether it responded.
 
-Usage (Pi via UART, run from repo root):
-    python software/control/ping_one.py --port /dev/ttyAMA0
-    python software/control/ping_one.py --port /dev/ttyAMA0 --id 1 --baud 1000000
+Usage (Jetson via USB Waveshare board):
+    python software/control/ping_one.py
+    python software/control/ping_one.py --port /dev/ttyACM0 --id 1 --baud 1000000
 Usage (Mac via USB Waveshare board):
     python software/control/ping_one.py --port /dev/cu.usbmodem5B141112771
 
@@ -26,7 +26,7 @@ sys.path.insert(0, os.path.dirname(__file__))
 from _serial_utils import open_sdk_port, ping_with_retry
 
 # --- defaults ---
-DEFAULT_PORT  = "/dev/ttyAMA0"   # Pi UART — override with --port /dev/cu.usbmodem* for Mac
+DEFAULT_PORT  = "/dev/ttyACM0"   # Jetson USB — override with --port /dev/cu.usbmodem* for Mac
 DEFAULT_ID    = 1
 DEFAULT_BAUD  = 1000000  # factory default for STS3215
 

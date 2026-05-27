@@ -38,7 +38,7 @@ def main():
     parser = argparse.ArgumentParser(description="Read a register from an STS3215 servo.")
     parser.add_argument("--id",   type=int, required=True, help="Servo ID")
     parser.add_argument("--reg",  type=int, required=True, help="Register address to read")
-    parser.add_argument("--port", default="/dev/ttyAMA0")
+    parser.add_argument("--port", default="/dev/ttyACM0")
     parser.add_argument("--baud", type=int, default=1_000_000)
     parser.add_argument("--raw",  action="store_true", help="Print raw response bytes")
     args = parser.parse_args()

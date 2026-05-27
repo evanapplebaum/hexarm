@@ -75,7 +75,7 @@ BAUD_MAP = {
 }
 
 # --- defaults ---
-DEFAULT_PORT       = "/dev/ttyAMA0"
+DEFAULT_PORT       = "/dev/ttyACM0"
 DEFAULT_BAUD       = 1_000_000
 FACTORY_DEFAULT_ID = 1
 

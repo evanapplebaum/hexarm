@@ -19,8 +19,8 @@ Fix: resync parser that accepts a response missing the leading 0xFF, validated
 by checksum. Retry up to MAX_RETRIES times on a completely empty response
 (means the outgoing ping was corrupted and the servo never replied).
 
-Usage (Pi via UART):
-    python3 software/control/raw_ping.py --port /dev/ttyAMA0 --id 1
+Usage (Jetson via USB Waveshare board):
+    python3 software/control/raw_ping.py --id 1
 Usage (Mac via USB Waveshare board):
     python3 software/control/raw_ping.py --port /dev/cu.usbmodem5B141112771 --id 1
 """
@@ -87,8 +87,8 @@ def parse_response(raw):
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", default="/dev/ttyAMA0",
-                        help="Serial port. Pi UART: /dev/ttyAMA0  Mac USB: /dev/cu.usbmodem*")
+    parser.add_argument("--port", default="/dev/ttyACM0",
+                        help="Serial port. Jetson USB: /dev/ttyACM0  Mac USB: /dev/cu.usbmodem*")
     parser.add_argument("--id",   default=1, type=int,
                         help="Servo ID to ping (factory default = 1)")
     parser.add_argument("--baud", default=1000000, type=int)

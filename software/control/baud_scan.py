@@ -5,8 +5,8 @@ baud_scan.py
 Tries every supported baud rate and IDs 1-20 looking for any servo response.
 Also sends a broadcast torque enable at each baud — watch for physical stiffening.
 
-Usage (Pi via UART):
-    python software/control/baud_scan.py --port /dev/ttyAMA0
+Usage (Jetson via USB Waveshare board):
+    python software/control/baud_scan.py
 Usage (Mac via USB Waveshare board):
     python software/control/baud_scan.py --port /dev/cu.usbmodem5B141112771
 """
@@ -27,8 +27,8 @@ def broadcast_torque_enable():
 
 def main():
     parser = argparse.ArgumentParser()
-    parser.add_argument("--port", default="/dev/ttyAMA0",
-                        help="Serial port. Pi UART: /dev/ttyAMA0  Mac USB: /dev/cu.usbmodem*")
+    parser.add_argument("--port", default="/dev/ttyACM0",
+                        help="Serial port. Jetson USB: /dev/ttyACM0  Mac USB: /dev/cu.usbmodem*")
     args = parser.parse_args()
 
     for baud in BAUDS:

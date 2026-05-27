@@ -56,9 +56,10 @@ GitHub: `github.com/evanapplebaum/hexarm`
 - **SSH:** `ssh evan0h@eka-orin.local` — VS Code Remote SSH confirmed working
 - **Display note:** Carrier board has DisplayPort only (no HDMI). Passive HDMI↔DP cable does NOT work — requires an active DisplayPort → HDMI adapter for initial GUI setup.
 - **Post-setup plan:** Disable GUI after oem-config to reclaim ~800MB RAM; operate permanently headless
-- **Connection to driver boards:** UART GPIO pins (one board per arm) — specific UART device TBD pending Jetson UART mapping
-- **UART note:** Jetson Orin Nano Super exposes multiple UART ports via 40-pin GPIO header. Unlike Pi, no Bluetooth overlay conflict. Exact device nodes (e.g. `/dev/ttyTHS*`) to be confirmed after boot.
-- **Serial console risk:** Same issue as Pi may apply — verify no getty or console is bound to the UART used for servos before bringing up servo comms. Check `cat /proc/cmdline` and `systemctl is-enabled serial-getty@<device>.service`.
+- **Connection to driver boards:** USB (USB-Servo mode on Waveshare board) — confirmed working 2026-05-26
+- **Serial port:** `/dev/ttyACM0` — board enumerates via `cdc_acm` driver (not `ch341`/`ttyUSB0` as expected). The CH343 chip on the board presents as a CDC ACM device on Jetson/Linux.
+- **dialout group:** `sudo usermod -aG dialout evan0h` — done. Note: VS Code Remote SSH caches group memberships and may not reflect changes after reconnect. Use `newgrp dialout` as workaround, or `pkill -f vscode-server` then reconnect for a clean session.
+- **Python venv:** `/home/evan0h/evdev/hexarm/.venv` (Python 3.10), pyserial installed. Activate: `source .venv/bin/activate` from hexarm root.
 
 ### Compute — Raspberry Pi Zero 2W (retired — kept for UART debugging reference)
 - **Status:** Was active compute; replaced by Jetson Orin Nano Super (2026-05-26)
@@ -295,11 +296,11 @@ See `docs/debugging/servo-comms-debug-log.md` Phase 5 for the actual root cause 
 | LeRobot installed in Mac venv | ❌ Not possible (Intel Mac, torch 2.7+) |
 | **Hardware / Servos** | |
 | Mac → board → servo communication working | ⚠️ Not yet tested (USB-Servo mode) |
-| Jetson → board → servo communication working | ⏳ Todo |
-| Driver board UART wiring to Jetson | ⏳ Todo |
+| Jetson → board → servo communication working | ✅ Done (2026-05-26, USB, /dev/ttyACM0) |
+| Driver board UART wiring to Jetson | ✅ Done (USB-Servo mode, ttyACM0 via cdc_acm driver) |
 | Servo IDs assigned (1–6 leader, 7–12 follower) | ⚠️ Only servo 2 currently on bus; reassign others when wired |
 | Bus communication test (ping all servos) | ⚠️ Only ID 2 verified end-to-end (2026-05-25, on Pi) |
-| SDK path (ping_one, calibrate) working on Jetson | ⏳ Todo |
+| SDK path (ping_one, calibrate) working on Jetson | ✅ Done (2026-05-26, sdk_diag 5/5, ping_one confirmed) |
 | Joint limit calibration for all 12 servos | ⏳ Todo (wire remaining servos first) |
 | **Application** | |
 | config.py rewrite (Jetson ports, remove Pi 5 / Pi Zero 2W refs) | ⏳ Todo |

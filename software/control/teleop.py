@@ -33,7 +33,7 @@ sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 # set defaults
 DEFAULT_ID = 1
 DEFAULT_BAUD = 1000000
-DEFAULT_PORT  = "/dev/ttyAMA0"
+DEFAULT_PORT  = "/dev/ttyACM0"
 
 # setup parser args
 parser = argparse.ArgumentParser(

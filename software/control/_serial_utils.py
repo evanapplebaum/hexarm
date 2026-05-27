@@ -44,7 +44,7 @@ USAGE:
         read_pos_with_retry, write_byte_with_retry,
     )
 
-    port_handler, st = open_sdk_port("/dev/ttyAMA0", 1_000_000)
+    port_handler, st = open_sdk_port("/dev/ttyACM0", 1_000_000)
     ok, model = ping_with_retry(st, servo_id=1)
     pos, ok   = read_pos_with_retry(st, servo_id=1)
     ok, _     = write_byte_with_retry(st, servo_id=1, addr=40, value=0)
