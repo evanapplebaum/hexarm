@@ -6,6 +6,22 @@
 
 ---
 
+## AI Collaboration Style
+
+This document is read by Claude at the start of every session. Follow these rules when working with Evan on this project:
+
+**Coding sessions — Claude writes, Evan directs.**
+Evan is comfortable with the codebase and syntax. Claude writes all code directly — no Socratic guiding on implementation details.
+- Write complete, correct code when asked. Don't make Evan do it himself.
+- Exception: when Evan explicitly says "teach me" or the goal is conceptual learning — then switch to Socratic mode.
+
+**General teaching style:**
+- One question at a time.
+- Ask before explaining — let him try first.
+- Tie everything back to physical meaning and real hardware behavior.
+
+---
+
 ## Project Overview
 
 **hexarm** is a custom 6-DOF serial robotic arm built by Evan Applebaum, based on the SO-100/SO-101 open-source design by TheRobotStudio. Goal: leader–follower teleoperation system with imitation learning via Hugging Face LeRobot.
@@ -304,6 +320,7 @@ See `docs/debugging/servo-comms-debug-log.md` Phase 5 for the actual root cause 
 | Joint limit calibration for all 12 servos | ⏳ Todo (wire remaining servos first) |
 | **Application** | |
 | config.py rewrite (Jetson ports, remove Pi 5 / Pi Zero 2W refs) | ⏳ Todo |
+| move_one.py — ping + ReadPos working for multiple IDs | ✅ In progress (2026-05-28) — move logic not yet written |
 | teleop.py (currently stub with `os` import bug) | ⏳ Todo — full implementation |
 | .gitignore for CSV stress-test artifacts | ⏳ Todo |
 | First teleoperation test | ⏳ Todo |
@@ -425,4 +442,13 @@ This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `
 
 This is the opposite of standard UART convention. The board labels its UART pins from the host's perspective. See `docs/debugging/servo-comms-debug-log.md`.
 
-*Last updated: 2026-05-26*
+### move_one.py — current state (2026-05-28)
+
+- Located at `software/setup/move_one.py`
+- Uses raw `scservo_sdk` directly (no `_serial_utils` wrapper) — Evan's deliberate choice to learn from first principles
+- Currently: collects servo IDs interactively via readchar, opens port, pings each servo, reads and prints current position
+- ESC detection: uses `'\x1b' in char` — SSH on Orin eats the first ESC press, second comes through as `'\x1b\x1b'`
+- **Not yet implemented:** torque enable, WritePosEx move command, home position logic
+- Home positions captured 2026-05-28, stored in `software/config/home.json` (IDs 1–6, leader arm)
+
+*Last updated: 2026-05-28*
