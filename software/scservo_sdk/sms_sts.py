@@ -58,7 +58,7 @@ SMS_STS_PRESENT_CURRENT_L = 69
 SMS_STS_PRESENT_CURRENT_H = 70
 
 class sms_sts(protocol_packet_handler):
-    def __init__(self, portHandler):
+    def __init__(self,portHandler):
         protocol_packet_handler.__init__(self, portHandler, 0)
         self.groupSyncWrite = GroupSyncWrite(self, SMS_STS_ACC, 7)
 

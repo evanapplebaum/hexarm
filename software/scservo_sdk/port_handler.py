@@ -9,7 +9,7 @@ DEFAULT_BAUDRATE = 1000000
 LATENCY_TIMER = 50 
 
 class PortHandler(object):
-    def __init__(self, port_name):
+    def __init__(self, port_name): # self is keyword that refers to the instance of the method, ex when u do port_handler = PortHandler(/dev/ttyACM0), self refers to port_handler
         self.is_open = False
         self.baudrate = DEFAULT_BAUDRATE
         self.packet_start_time = 0.0
@@ -40,9 +40,7 @@ class PortHandler(object):
         baud = self.getCFlagBaud(baudrate)
 
         if baud <= 0:
-            # self.setupPort(38400)
-            # self.baudrate = baudrate
-            return False  # TODO: setCustomBaudrate(baudrate)
+            return False 
         else:
             self.baudrate = baudrate
             return self.setupPort(baud)

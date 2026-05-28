@@ -54,25 +54,41 @@ def main():
     parser.add_argument("--baud",  default=DEFAULT_BAUD,  type=int, help="Baud rate")
     args = parser.parse_args()
 
-    print("\nEnter ID of servo you want to control. Press enter to confirm entry, esc when done entering")
+    print("\nEnter ID of servo you want to control. Press enter to confirm entry, esc twice when done entering")
     id_list = []
     done = False
     while not done:
-        print("\nEnter ID: ")
+        print("\nEnter ID: ", end="", flush=True)
         current_input = ""
         while True:
             char = readchar.readkey()
-            print(repr(char))
             print(char, end="", flush=True)
+            
             if char.isdigit():
                 current_input += char
-            elif char == readchar.key.ESC:
+            
+            elif '\x1b' in char or char == readchar.key.SPACE:
                 done = True
-                print(f"{done}")
                 break
+
             elif char == readchar.key.ENTER:
+                id_list.append(int(current_input))
                 break
-                
+    
+    print(f"\nAll included IDs: {id_list}")
+    
+    port_handler = PortHandler(args.port)
+    port_handler.openPort()
+    port_handler.setBaudRate(args.baud) 
+    servo = sms_sts(port_handler) # wrap port in layer that facilitates  communication
+
+    for id in id_list:
+        model_number, result, error = servo.ping(id)
+        print(f"Model number: {model_number}\n Result: {result}\n Error{error}")
+        scs_present_position, scs_comm_result, scs_error = servo.ReadPos(id)
+        print(f"Servo ID {id} Position: {scs_present_position}")
+
+
         
 
 
@@ -80,12 +96,10 @@ def main():
 
     # open_sdk_port returns tuple
     # port_handler gives access to serial port 
+    # protocol_packet_handler defines ST3215 packet structure
     # st is sms_sts object - access to WritePosEx, etc.
-    print(f"Opening port {args.port} at {args.baud} baud...")
-    port_handler, st = open_sdk_port(args.port, args.baud)
 
-    print(f"Pinging servo ID {args.id}...")
-    ok, model_number = ping_with_retry(st, args.id)
+
 
 
 # when running ex. python3 move_one.py, python sets __name__ == __main__.
