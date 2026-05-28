@@ -22,8 +22,8 @@ HOME_ACC   = 50     # units of ~100 steps/s² — gentle ramp so arm doesn't jer
 
 
 def collect_ids():
-    """Interactively collect servo IDs via readchar. ESC (×2 on SSH) or SPACE to finish."""
-    print("\nEnter servo IDs to control. ENTER to confirm each, ESC or SPACE when done.")
+    """Interactively collect servo IDs via readchar. SPACE to finish."""
+    print("\nEnter servo IDs to control. ENTER to confirm each, SPACE when done.")
     id_list = []
     done = False
     while not done:
@@ -34,7 +34,7 @@ def collect_ids():
             if char.isdigit():
                 current_input += char
                 print(char, end="", flush=True)
-            elif '\x1b' in char or char == readchar.key.SPACE:
+            elif char == readchar.key.SPACE:
                 done = True
                 break
             elif char == readchar.key.ENTER:
