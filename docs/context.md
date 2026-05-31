@@ -201,11 +201,13 @@ Both SDKs are from Feetech/Waveshare and use identical packet protocols for STS3
 - **SDK in use:** `scservo_sdk` (in `software/scservo_sdk/`, imported via `sys.path.insert`)
 
 ### LeRobot (Jetson — target platform)
-- Version: 0.5.2
 - Feetech driver: `lerobot.motors.feetech.feetech.FeetechMotorsBus`
-- Python 3.12 required (numba constraint: >=3.9, <3.13)
-- ARM64 + CUDA on Jetson → torch 2.7+ installs normally (unlike Intel Mac)
-- Venv on Jetson: TBD (was `source ~/lerobot-env/bin/activate` on Pi)
+- Python 3.12 required (LeRobot main branch requires >=3.12)
+- **Conda env:** `lerobot` (Python 3.12) at `/data/miniconda3/envs/lerobot/` — activate: `conda activate lerobot`
+- **PyTorch:** installed from PyPI cu126 index (`https://download.pytorch.org/whl/cu126`) — torch 2.x, CUDA 12.6 compatible
+- **Repo:** cloned at `/data/lerobot`, installed with `pip install -e ".[feetech]"` (2026-05-28, in progress)
+- **NVMe SSD:** 512GB mounted at `/data` — all LeRobot data, conda env, and repo live here
+- **Servo ID convention:** LeRobot expects IDs 1–6 on each arm bus independently. Leader arm uses 1–6 on /dev/ttyACM0. Follower arm must also use 1–6 on /dev/ttyACM1 (NOT 7–12 as originally planned — two separate buses, no conflict)
 
 ---
 
@@ -294,12 +296,13 @@ See `docs/debugging/servo-comms-debug-log.md` Phase 5 for the actual root cause 
 | Task | Status |
 |---|---|
 | **Compute** | |
-| Jetson Orin Nano Super — JetPack 6.2 flash | ⚠️ In progress (2026-05-26, Balena Etcher) |
-| Jetson — oem-config first-boot wizard | ⏳ Todo |
-| Jetson — SSH access configured | ⏳ Todo |
+| Jetson Orin Nano Super — JetPack 6.2 flash | ✅ Done (2026-05-26) |
+| Jetson — oem-config first-boot wizard | ✅ Done |
+| Jetson — SSH access configured | ✅ Done (`ssh evan0h@eka-orin.local`) |
 | Jetson — GUI disabled (headless mode) | ⏳ Todo |
-| Jetson — UART device nodes confirmed for servo chains | ⏳ Todo |
+| Jetson — UART device nodes confirmed for servo chains | ✅ Done (/dev/ttyACM0 via cdc_acm) |
 | Jetson — serial console verified off UART used for servos | ⏳ Todo |
+| NVMe SSD (512GB) mounted at /data | ✅ Done (2026-05-28, ext4, fstab entry added) |
 | **Software** | |
 | Mac venv created (Python 3.12) | ✅ Done |
 | pyserial installed in Mac venv | ✅ Done |
@@ -308,21 +311,27 @@ See `docs/debugging/servo-comms-debug-log.md` Phase 5 for the actual root cause 
 | _serial_utils.py (shared SDK helpers + retry wrappers) | ✅ Done (2026-05-25) |
 | sdk_diag.py (read-pattern diagnostic) | ✅ Done (2026-05-25) |
 | port_handler.py reverted to upstream readPort | ✅ Done (2026-05-25) |
-| LeRobot 0.5.2 installed (Jetson) | ⏳ Todo |
-| LeRobot installed in Mac venv | ❌ Not possible (Intel Mac, torch 2.7+) |
+| LeRobot conda env (Python 3.12) on Jetson | ✅ Done (2026-05-28, /data/miniconda3/envs/lerobot) |
+| PyTorch installed (cu126, Jetson) | ✅ Done (2026-05-28, from download.pytorch.org/whl/cu126) |
+| LeRobot pip install -e ".[feetech]" | ⚠️ In progress (2026-05-28) |
+| LeRobot installed in Mac venv | ❌ Not possible (Intel Mac) |
 | **Hardware / Servos** | |
 | Mac → board → servo communication working | ⚠️ Not yet tested (USB-Servo mode) |
 | Jetson → board → servo communication working | ✅ Done (2026-05-26, USB, /dev/ttyACM0) |
 | Driver board UART wiring to Jetson | ✅ Done (USB-Servo mode, ttyACM0 via cdc_acm driver) |
-| Servo IDs assigned (1–6 leader, 7–12 follower) | ⚠️ Only servo 2 currently on bus; reassign others when wired |
+| Servo IDs assigned (1–6 leader, 1–6 follower on separate buses) | ⚠️ Leader wired; follower not yet wired. Follower IDs must be 1–6 (not 7–12) |
 | Bus communication test (ping all servos) | ⚠️ Only ID 2 verified end-to-end (2026-05-25, on Pi) |
 | SDK path (ping_one, calibrate) working on Jetson | ✅ Done (2026-05-26, sdk_diag 5/5, ping_one confirmed) |
+| Angle limits flashed to servo EPROM | ⏳ Todo (run flash_angle_limits.py when all servos wired) |
 | Joint limit calibration for all 12 servos | ⏳ Todo (wire remaining servos first) |
 | **Application** | |
 | config.py rewrite (Jetson ports, remove Pi 5 / Pi Zero 2W refs) | ⏳ Todo |
-| move_one.py — ping + ReadPos working for multiple IDs | ✅ In progress (2026-05-28) — move logic not yet written |
+| move_one.py — ping, ReadPos, torque enable, home move | ✅ Done (2026-05-28) |
+| torque_off.py — interactive torque disable | ✅ Done (2026-05-28) |
+| flash_angle_limits.py — write limits.json to servo EPROM | ✅ Done (2026-05-28) |
 | teleop.py (currently stub with `os` import bug) | ⏳ Todo — full implementation |
 | .gitignore for CSV stress-test artifacts | ⏳ Todo |
+| LeRobot motor config + calibration | ⏳ Todo |
 | First teleoperation test | ⏳ Todo |
 | Dataset recording | ⏳ Todo |
 | Policy training | ⏳ Todo |
@@ -445,10 +454,14 @@ This is the opposite of standard UART convention. The board labels its UART pins
 ### move_one.py — current state (2026-05-28)
 
 - Located at `software/setup/move_one.py`
-- Uses raw `scservo_sdk` directly (no `_serial_utils` wrapper) — Evan's deliberate choice to learn from first principles
-- Currently: collects servo IDs interactively via readchar, opens port, pings each servo, reads and prints current position
-- ESC detection: uses `'\x1b' in char` — SSH on Orin eats the first ESC press, second comes through as `'\x1b\x1b'`
-- **Not yet implemented:** torque enable, WritePosEx move command, home position logic
-- Home positions captured 2026-05-28, stored in `software/config/home.json` (IDs 1–6, leader arm)
+- Uses raw `scservo_sdk` directly (no `_serial_utils` wrapper)
+- Interactive ID collection via readchar; SPACE to finish (ESC dropped — SSH eats it)
+- On startup: pings each servo, reads current position, enables torque, moves to home position from `config/home.json`
+- Home speed: 500 steps/s, accel: 50 (~100 steps/s² units) — conservative startup values
+- Home positions stored in `software/config/home.json` (IDs 1–6, leader arm, captured 2026-05-28)
+
+### torque_off.py / flash_angle_limits.py (2026-05-28)
+- `torque_off.py`: interactive torque disable, same ID collection as move_one.py
+- `flash_angle_limits.py`: reads limits.json, writes MIN/MAX angle limits to servo EPROM for all IDs; servo needs power cycle after
 
 *Last updated: 2026-05-28*
