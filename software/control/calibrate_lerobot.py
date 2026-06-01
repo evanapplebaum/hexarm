@@ -125,7 +125,8 @@ def main() -> None:
     homed_maxes:    dict[str, int] = {}
 
     print("\nStep 2: Per-joint calibration.")
-    print("  For each joint: move to center, then sweep both stops.\n")
+    print("  For each joint: move to center, then sweep both stops.")
+    print("  Type 's' + Enter at any prompt to skip a joint.\n")
 
     for name in motors:
         # Phase A — center the joint, then write the homing offset.
@@ -133,7 +134,10 @@ def main() -> None:
         # and writes Homing_Offset = 2047 - raw_center to servo EPROM.
         # After this, Present_Position(center) == 2047, and the encoder seam
         # sits in the dead gap on the far side of the arc.
-        input(f"  [{name}] Move to the CENTER of this joint's travel arc. Press Enter...")
+        response = input(f"  [{name}] Move to the CENTER of this joint's travel arc. Enter to calibrate, 's' to skip: ")
+        if response.strip().lower() == "s":
+            print(f"    → Skipped.\n")
+            continue
         offsets = bus.set_half_turn_homings([name])
         homing_offsets[name] = int(offsets[name])
         print(f"    → homing_offset = {homing_offsets[name]}")
@@ -152,7 +156,7 @@ def main() -> None:
               f"span={span} counts ({span / 4096 * 360:.1f}°)\n")
 
     print("Homed ranges (used for normalization):")
-    for name in motors:
+    for name in homed_mins:
         print(f"  {name:<16}  min={homed_mins[name]}  max={homed_maxes[name]}")
 
     # ── Step 3: Build and write calibration ───────────────────────────────
@@ -165,6 +169,7 @@ def main() -> None:
             range_max=homed_maxes[name],
         )
         for name, motor in motors.items()
+        if name in homing_offsets  # exclude skipped joints
     }
 
     print("\nStep 3: Writing calibration to servo EPROM registers...")
