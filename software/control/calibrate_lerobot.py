@@ -177,8 +177,14 @@ def main() -> None:
     print("Calibration written.")
 
     # ── Step 4: Save JSON backup ───────────────────────────────────────────
+    # Merge with existing file so skipped joints are preserved from prior runs.
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    backup = {name: dataclasses.asdict(cal) for name, cal in calibration.items()}
+    if out_path.exists():
+        with open(out_path) as f:
+            backup = json.load(f)
+    else:
+        backup = {}
+    backup.update({name: dataclasses.asdict(cal) for name, cal in calibration.items()})
     with open(out_path, "w") as f:
         json.dump(backup, f, indent=2)
     print(f"JSON backup saved to {out_path}")
