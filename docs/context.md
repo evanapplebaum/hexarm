@@ -10,15 +10,42 @@
 
 This document is read by Claude at the start of every session. Follow these rules when working with Evan on this project:
 
-**Coding sessions — Claude writes, Evan directs.**
-Evan is comfortable with the codebase and syntax. Claude writes all code directly — no Socratic guiding on implementation details.
-- Write complete, correct code when asked. Don't make Evan do it himself.
-- Exception: when Evan explicitly says "teach me" or the goal is conceptual learning — then switch to Socratic mode.
+**Coding sessions — triage by whether the code carries a model.**
+The deciding question for any piece of code: *"Would a robotics interviewer ask Evan to explain this on a whiteboard?"*
+- **Model-bearing code** (physics, math, control logic — homing offsets, mod-4096 reasoning, IK, teleop mapping): **Evan writes it first**, predict-first (he writes the expected output/value before running), *then* Claude red-teams it. Generation before feedback. Do NOT hand Evan the answer on this code the first time — the act of deriving it IS the education.
+- **Glue code** (argparse, JSON I/O, per-joint loops, file paths, plotting): Claude writes it; Evan reads and checks he can predict the output. The "quiz me, then you write" flow is correct here.
+- **Earned boilerplate** (patterns Evan has already internalized): full Claude, minimal review.
+- The rule: Evan earns the delegation. He may hand a task to Claude once he can *predict its output and verify it*. If he can't predict it yet, doing it by hand is the learning, not inefficiency.
+- Exception: when Evan explicitly says "teach me" or the goal is conceptual learning — then switch to Socratic mode regardless of bucket.
 
 **General teaching style:**
 - One question at a time.
 - Ask before explaining — let him try first.
 - Tie everything back to physical meaning and real hardware behavior.
+
+---
+
+## Learning Approach (methodology — agreed 2026-06-01)
+
+How Evan is approaching learning robotics, decided in a long discussion. This governs how to pace and structure work, not just how to write code.
+
+**Goal & timeline.** Evan is 22, targeting a solid robotics job. The current proof is **for recruiters** → favor breadth-with-polish and one or two deep, defensible subsystems. "Buckle down into the fine print" comes *after* landing the role. The hexarm project is the portfolio centerpiece.
+
+**Core principle — optimize prediction-error density, not speed.** Learning is driven by prediction error (the gap between expected and actual is the signal that updates the model and tags memory). Fast-vs-slow is the wrong axis; both fail the same way when no error loop is closed (passive reading = high load, no signal; cargo-culting = working demo, no model). The danger of AI isn't that it writes syntax — it's that it skips the prediction-error loop and leaves you fluent-feeling but model-empty.
+
+**Why robotics fits this.** Physical bugs (oscillation, current limits, the encoder seam) live in reality, can't be hand-waved, and AI can't see the hardware — so debugging forces a real causal model. This is protection against the fluency illusion.
+
+**The operating loop (spiral / summit-then-backtrack):**
+1. Build the whole pipeline fast, top-down (cargo-culting OK) → this is the map / advance organizer. *(Currently pass 1.)*
+2. Log friction — every spot where reality surprised him.
+3. Rank by leverage (blocks progress? recurs? core to "knowing my shit"?).
+4. Deep-dive the top item to first principles, **predict-first**. Only deep-dive what *bit* you — surprise + relevance is what the hippocampus prioritizes. (Calibration broke → he now owns encoders/mod-4096/sign-magnitude/normalization. He correctly did NOT deep-dive USB framing or tqdm — they didn't bite.)
+5. Consolidate by writing it up (issue → ADR/doc). The writing IS the retrieval-practice learning step, not overhead. (This unifies the project's documentation/sprint goals with the learning method.)
+6. Re-spiral.
+
+**Friction log.** Evan keeps this in his Notes app (chosen for speed — must be < 30s to log or the habit dies, ADHD tax is real). It doubles as interview-prep ("tell me about a hard bug"). Per-entry fields: **Surprise** (the prediction error, logged when it fires), Guess, Reality, **Leverage** (HIGH/MED/LOW — the backtrack trigger), Status. NOT kept as a markdown file in-repo per Evan's choice 2026-06-01.
+
+**Code-writing policy:** see the triage rule in AI Collaboration Style above (model-bearing → Evan writes first predict-first; glue → Claude writes). The deciding question is "would an interviewer make me whiteboard this?"
 
 ---
 
@@ -138,6 +165,8 @@ hexarm/
 │   │   ├── sdk_diag.py                 ← diagnostic — runs 5 read patterns, isolates SDK vs raw-path bugs
 │   │   ├── calibrate.py                ← interactive MIN/MAX/MID joint-limit calibration → config/limits.json
 │   │   ├── teleop.py                   ← STUB ONLY — currently has unfixed `os` import bug, no SDK calls yet
+│   │   ├── keyboard_follower.py        ← LeRobot keyboard control of follower arm (IDs 1–6); normalize=False; works
+│   │   ├── calibrate_lerobot.py        ← LeRobot calibration for leader or follower arm (--arm, --joints, --port); blocked on wrap-around (see below)
 │   │   ├── config.py                   ← motor IDs, port assignments (needs rewrite — Pi 5 refs)
 │   │   └── read_register.py            ← read arbitrary EPROM/SRAM register (raw pyserial, doesn't need VMIN fix)
 │   ├── scservo_sdk/                    ← Feetech official SDK (NOT a pip package — local copy)
@@ -157,7 +186,9 @@ hexarm/
 │   ├── kinematics/
 │   ├── utils/
 │   └── config/
-│       └── limits.json                 ← joint travel limits (populated by calibrate.py)
+│       ├── limits.json                 ← joint travel limits (populated by calibrate.py, leader arm)
+│       ├── calibration_follower.json   ← LeRobot calibration backup (follower arm; needs redo after wrap-around fix)
+│       └── calibration_leader.json     ← LeRobot calibration backup (leader arm 4 joints; needs redo after wrap-around fix)
 ├── .venv/                              ← Python venv (recreate per platform — NOT cross-platform)
 └── .gitignore
 ```
@@ -205,9 +236,51 @@ Both SDKs are from Feetech/Waveshare and use identical packet protocols for STS3
 - Python 3.12 required (LeRobot main branch requires >=3.12)
 - **Conda env:** `lerobot` (Python 3.12) at `/data/miniconda3/envs/lerobot/` — activate: `conda activate lerobot`
 - **PyTorch:** installed from PyPI cu126 index (`https://download.pytorch.org/whl/cu126`) — torch 2.x, CUDA 12.6 compatible
-- **Repo:** cloned at `/data/lerobot`, installed with `pip install -e ".[feetech]"` (2026-05-28, in progress)
+- **Repo:** cloned at `/data/lerobot`, installed with `pip install -e ".[feetech]"` — ✅ confirmed working 2026-05-31
 - **NVMe SSD:** 512GB mounted at `/data` — all LeRobot data, conda env, and repo live here
-- **Servo ID convention:** LeRobot expects IDs 1–6 on each arm bus independently. Leader arm uses 1–6 on /dev/ttyACM0. Follower arm must also use 1–6 on /dev/ttyACM1 (NOT 7–12 as originally planned — two separate buses, no conflict)
+- **Servo ID convention (UPDATED):** Both arms on ONE bus (/dev/ttyACM0), one driver board. Follower IDs 1–6, leader IDs 7–12. LeRobot's two-bus assumption does NOT apply.
+- **Scripts live in hexarm repo** (`software/control/`), import from lerobot conda env. Run from hexarm root with `conda activate lerobot`.
+
+### FeetechMotorsBus API (confirmed 2026-05-31)
+```python
+from lerobot.motors.feetech import FeetechMotorsBus
+from lerobot.motors.motors_bus import Motor, MotorCalibration, MotorNormMode
+
+# Construction
+bus = FeetechMotorsBus(
+    port="/dev/ttyACM0",
+    motors={"shoulder_pan": Motor(id=1, model="sts3215", norm_mode=MotorNormMode.RANGE_0_100), ...},
+    calibration=None,   # optional: dict[str, MotorCalibration]
+    protocol_version=0  # 0 = Feetech, 1 = Dynamixel
+)
+
+# Key methods
+bus.connect() / bus.disconnect()
+bus.enable_torque(motors=None)   # None = all motors
+bus.disable_torque(motors=None)
+bus.read(data_name, motor, *, normalize=True, num_retry=0) -> Value         # single motor
+bus.write(data_name, motor, value, *, normalize=True, num_retry=0)          # single motor
+bus.sync_read(data_name, motors=None, *, normalize=True) -> dict[str, Value]
+bus.sync_write(data_name, values, *, normalize=True)
+bus.set_half_turn_homings(motors=None) -> dict[NameOrID, Value]  # resets cal, reads pos, writes Homing_Offset = 2047 - present_pos
+bus.record_ranges_of_motion(motors=None, display_values=True) -> tuple[dict, dict]  # (mins, maxes); waits for Enter
+bus.write_calibration(calibration_dict, cache=True)  # writes Homing_Offset + Min/Max_Position_Limit to EPROM
+bus.read_calibration() -> dict[str, MotorCalibration]
+
+# MotorCalibration
+MotorCalibration(id, drive_mode, homing_offset, range_min, range_max)
+
+# MotorNormMode options
+MotorNormMode.RANGE_0_100    # 0–100%
+MotorNormMode.RANGE_M100_100 # –100 to +100
+MotorNormMode.DEGREES        # actual degrees
+```
+
+**IMPORTANT — normalize=False behaviour (CORRECTED 2026-06-01):** The earlier belief that "homing offset doesn't affect `normalize=False` reads" was WRONG. The STS3215 applies the homing offset *in hardware*: `Present_Position = (raw_encoder − Homing_Offset) mod 4096`, reported in 0–4095. So `normalize=False` reads DO reflect the offset, and the result is always wrapped into the single-turn range. This mod-4096 behaviour requires the Phase register bit 4 (0x10) to be cleared — `bus.configure_motors()` does this for sts3215. See the Encoder Wrap-Around section for why this is the whole key to calibration.
+
+**IMPORTANT — safe torque enable:** Always write `Goal_Position = Present_Position` for all motors before calling `enable_torque()`. Otherwise servos snap to stale goal from a previous run. See `safe_enable_torque()` helper in `calibrate_lerobot.py`.
+
+**IMPORTANT — stale EPROM offsets:** `write_calibration` and `set_half_turn_homings` write to servo EPROM. A crashed calibration run leaves stale homing offsets in hardware. Always clear with `bus.write("Homing_Offset", name, 0, normalize=False)` before starting a new calibration.
 
 ---
 
@@ -329,9 +402,12 @@ See `docs/debugging/servo-comms-debug-log.md` Phase 5 for the actual root cause 
 | move_one.py — ping, ReadPos, torque enable, home move | ✅ Done (2026-05-28) |
 | torque_off.py — interactive torque disable | ✅ Done (2026-05-28) |
 | flash_angle_limits.py — write limits.json to servo EPROM | ✅ Done (2026-05-28) |
+| keyboard_follower.py — LeRobot keyboard control of follower arm | ✅ Done (2026-05-31) |
+| calibrate_lerobot.py — per-joint LeRobot calibration, both arms | ⚠️ Needs rewrite — current version hand-rolls offset math, never calls configure_motors(). Fix designed 2026-06-01 (see Encoder Wrap-Around section) |
+| LeRobot calibration — encoder wrap-around fix | ✅ Solved conceptually (2026-06-01); ⏳ code rewrite pending |
+| capture_neutral.py — capture normalized neutral pose | ⏳ Todo (after calibration fixed) |
 | teleop.py (currently stub with `os` import bug) | ⏳ Todo — full implementation |
 | .gitignore for CSV stress-test artifacts | ⏳ Todo |
-| LeRobot motor config + calibration | ⏳ Todo |
 | First teleoperation test | ⏳ Todo |
 | Dataset recording | ⏳ Todo |
 | Policy training | ⏳ Todo |
@@ -435,6 +511,12 @@ This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `
 - Resync parser design — using checksum as integrity check to recover from a dropped header byte (the Phase 4 implementation; not currently in use)
 - The byte-stealing pitfall — reading N+1 bytes and returning N silently steals data from the next read; breaks multi-transaction SDK calls like `ping()` (which does PING + read-model)
 - STS3215 model number reported via `ping()` = **777**
+- STS3215 single-turn position reporting — `Present_Position = (raw − Homing_Offset) mod 4096`; Phase register bit 4 (0x10) must be cleared (via `configure_motors()`) to enable it
+- Encoder seam relocation — the 4095↔0 jump is NOT fixed to the magnet zero; it sits where `raw = Homing_Offset`, so choosing the offset moves the seam
+- Home-at-center calibration — homing at the arc midpoint parks the seam 2048 counts away, i.e. in the center of the dead gap, so travel < 360° never crosses it (this is how LeRobot/SO-100 "handle" wrap joints — by avoidance, not special-casing)
+- LeRobot `drive_mode` — software sign-flip applied after normalization (leader/follower direction agreement); does NOT affect encoder, offset, or seam
+- LeRobot calibration internals — `_normalize`/`_unnormalize` only read range_min/max (no sign constraint); only `_serialize_data` rejects negative values, and only for the unsigned Min/Max_Position_Limit EPROM registers
+- Sign-magnitude encoding — Homing_Offset uses bit 11 as sign (per Feetech tables), so negative offsets ARE writable to EPROM; position limits are unsigned
 - STS3215 EPROM write workflow — unLockEprom → write → LockEprom, broadcast --force mode
 - Baud rate register (reg 6) and BAUD_MAP — value encoding, power-cycle requirement
 - Return delay register (reg 7) — what it does (silence before response) and what it doesn't fix (framing errors)
@@ -451,6 +533,94 @@ This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `
 
 This is the opposite of standard UART convention. The board labels its UART pins from the host's perspective. See `docs/debugging/servo-comms-debug-log.md`.
 
+---
+
+## Encoder Wrap-Around — RESOLVED ✅
+
+**Discovered 2026-05-31. Root cause understood and solution designed 2026-06-01.** Some joints have their physical travel range crossing the STS3215 encoder's 0↔4095 boundary. The absolute magnetic encoder is 12-bit (0–4095 per revolution). If the servo is mounted such that the physical joint stops straddle this boundary, raw encoder readings jump from 4095→0 mid-motion.
+
+### The key insight (2026-06-01)
+
+The STS3215 reports `Present_Position = (raw_encoder − Homing_Offset) mod 4096`, always in 0–4095 (requires Phase bit 4 cleared, done by `configure_motors()`). The consequence: the encoder *seam* (where present jumps 4095↔0) is NOT fixed to the magnet's zero — it sits at the shaft angle where `raw = Homing_Offset`. **Choosing the homing offset moves the seam.**
+
+So the problem isn't "tolerate a wrap" — it's "park the seam in the joint's dead gap (the untraveled arc) so the travel never crosses it." And LeRobot's home-at-center procedure does this automatically: homing at the arc center throws the seam exactly 2048 counts away, which is the center of the opposite (dead) gap. As long as travel < 360°, the gap is non-zero and the seam lands safely inside it.
+
+Worked example — shoulder_lift (ID 8), stops raw 1855 and 202:
+- Travel arc = (202 − 1855) mod 4096 = 2443 counts ≈ 215°. Dead gap = 1653 counts ≈ 145°.
+- Mid-arc raw ≈ 3076 → `Homing_Offset = 3076 − 2047 = 1029`. Seam at raw=1029, which is the center of the dead gap (202–1855). ✓
+- Reported present after homing: stop A (1855) → 826, center (3076) → 2047, stop B (202) → 3269. **Both limits positive, contiguous, ~215° span. No negative EPROM write.**
+
+The `−827` from the original failure only appeared because the OLD script computed `raw + offset` in plain Python **without the mod 4096** that the servo actually applies. The negative write was a symptom, not the disease.
+
+### The correct calibration flow (per joint)
+
+1. `bus.configure_motors()` once up front — clears the Phase bit so present-position reporting is single-turn mod-4096. **The old script never called this** — that was a real latent bug.
+2. Hand-move the joint to the **middle** of its travel.
+3. `bus.set_half_turn_homings([name])` — resets cal, reads present, writes `Homing_Offset`; the *servo* applies it.
+4. `bus.record_ranges_of_motion([name])` — now records present in the continuous homed frame → clean positive range, seam parked in the dead gap.
+5. `bus.write_calibration(...)`.
+
+Keep the per-joint loop (prevents unsupported joints swinging under gravity). Just split each joint into "move to middle → Enter" then "sweep both stops → Enter."
+
+### Answers to the three handoff questions
+
+1. **How does SO-100 handle wrap joints?** It doesn't special-case them — it *avoids* the seam via single-turn mod-4096 reporting (Phase bit) + home-at-center (seam → dead gap). No negative range_min in normal use.
+2. **Does `drive_mode=1` fix it?** No. `drive_mode` is only a software sign-flip applied *after* normalization (`100 - norm if drive_mode`) so leader/follower agree on direction. It never touches the encoder, offset, or seam. It cannot reroute the joint onto the short path — the joint physically occupies the 215° arc.
+3. **Negative `range_min` in software only?** Not needed if you home correctly (you get 826–3269). But it IS valid in principle: `_normalize`/`_unnormalize` only read range_min/range_max and never require ≥0. Only `_serialize_data` rejects negatives, and only when writing the *unsigned* Min/Max_Position_Limit EPROM registers. (Homing_Offset itself is fine negative — sign-magnitude, bit 11.) So a true-negative range = keep range in JSON, skip the EPROM limit write.
+
+### Historical (superseded) framing of the failure
+
+**Discovered 2026-05-31.** Some joints have their physical travel range crossing the STS3215 encoder's 0↔4095 boundary.
+
+### Confirmed affected joints (leader arm, 2026-05-31)
+
+| Joint | ID | Stop A (raw) | Stop B (raw) | Wraps? | Notes |
+|---|---|---|---|---|---|
+| shoulder_pan | 7 | 944 | 3337 | No ✅ | Clean range |
+| shoulder_lift | 8 | 1855 | 202 | **Yes ⚠️** | Goes UP: 1855→4095→0→202; span ~214° |
+| elbow_flex | 9 | 831 | 3149 | No ✅ | Clean range |
+| wrist_flex | 10 | 2448 | 3970 | Unknown | Suspect yes — showed 0–4095 in calibration run |
+
+Diagnostic command used to confirm:
+```bash
+python -c "
+from lerobot.motors.feetech import FeetechMotorsBus
+from lerobot.motors.motors_bus import Motor, MotorNormMode
+import time
+bus = FeetechMotorsBus(port='/dev/ttyACM0', motors={
+    'shoulder_lift': Motor(id=8, model='sts3215', norm_mode=MotorNormMode.RANGE_0_100),
+})
+bus.connect(); bus.disable_torque()
+while True:
+    v = bus.read('Present_Position', 'shoulder_lift', normalize=False)
+    print(f'\r  {int(v):4d}', end='', flush=True)
+    time.sleep(0.05)
+"
+```
+
+### Why `record_ranges_of_motion` fails for wrap-around joints
+
+`record_ranges_of_motion` uses simple `min()` / `max()` tracking. For a joint that traverses 1855→4095→0→202, it records min=0, max=4095 (full encoder range) — which is physically wrong.
+
+### Why `set_half_turn_homings` doesn't fix it
+
+`set_half_turn_homings` computes `homing_offset = 2047 - present_position` and writes it to the servo EPROM. For shoulder_lift with the center of wrap-path at raw ~3076:
+- homing_offset = 2047 - 3076 = -1029
+- Stop A (raw 1855): homed = 1855 + (-1029) = 826 ✓
+- Stop B (raw 202): homed = 202 + (-1029) = **-827** ✗
+
+`write_calibration` attempts to write range_min = -827 to the `Min_Position_Limit` EPROM register, which rejects negative values → `ValueError`.
+
+### Current state of calibration files
+
+Both `calibration_follower.json` and `calibration_leader.json` are **stale** — generated before the fix was understood. Re-run calibration with the corrected flow above (configure_motors → home-at-center → record). The values will be valid once the rewritten `calibrate_lerobot.py` lands.
+
+### Remaining implementation work
+
+The physics is solved; the code is not yet rewritten. `calibrate_lerobot.py` still hand-rolls offset math (`raw + offset` without mod 4096) and never calls `configure_motors()`. Next step: rewrite it around the library primitives in the order listed above. Per the coding-triage rule, the homing/seam logic is **model-bearing → Evan writes it first, predict-first**; the argparse/JSON/loop scaffolding is glue → Claude can write it.
+
+---
+
 ### move_one.py — current state (2026-05-28)
 
 - Located at `software/setup/move_one.py`
@@ -464,4 +634,4 @@ This is the opposite of standard UART convention. The board labels its UART pins
 - `torque_off.py`: interactive torque disable, same ID collection as move_one.py
 - `flash_angle_limits.py`: reads limits.json, writes MIN/MAX angle limits to servo EPROM for all IDs; servo needs power cycle after
 
-*Last updated: 2026-05-28*
+*Last updated: 2026-06-01*

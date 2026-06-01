@@ -44,7 +44,7 @@ MOTORS: dict[str, Motor] = {
     "gripper":       Motor(id=6, model="sts3215", norm_mode=MotorNormMode.RANGE_0_100),
 }
 
-JOINT_NAMES = list(MOTORS.keys())
+JOINT_NAMES = list(MOTORS.keys()) # where 'keys' is a keyword for motor name ex. shoulder_pan
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
