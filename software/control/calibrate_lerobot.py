@@ -2,12 +2,21 @@
 """
 calibrate_lerobot.py — LeRobot calibration for leader or follower arm
 
-Workflow:
-  1. Clears any existing homing offsets from servo EPROM (clean slate).
-  2. Sweeps each joint individually to its physical stops (avoids gravity
-     swinging unsupported joints during multi-joint sweep).
-  3. Computes homing offset per joint so center of travel = 2047.
-  4. Writes calibration to servo EPROM and saves JSON backup.
+Workflow (per joint):
+  1. Clears any existing homing offsets from servo EPROM (clean slate so
+     Present_Position == raw encoder value when set_half_turn_homings runs).
+  2. configure_motors() — clears Phase register bit so Present_Position is
+     reported as single-turn mod-4096 (required for correct homing).
+  3. Per joint:
+     a. User moves joint to the CENTER of its physical travel arc.
+     b. set_half_turn_homings() — reads current raw position, writes
+        Homing_Offset = 2047 - raw_center. The encoder seam (0↔4095 jump)
+        is relocated to the dead gap opposite center, so the full travel arc
+        becomes a contiguous range in 0–4095.
+     c. User sweeps joint to both physical stops.
+     d. record_ranges_of_motion() — reads Present_Position live (already in
+        homed frame). Both limits land positive, no wrap-around artifact.
+  4. Builds MotorCalibration from the recorded ranges and writes to EPROM + JSON.
 
   Note: Neutral pose is defined separately via capture_neutral.py.
 
@@ -52,8 +61,8 @@ CONFIG_DIR    = Path("software/config")
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-# creates dictionary of which motor ids are to be calibrated
 def build_motors(arm: str, n_joints: int) -> dict[str, Motor]:
+    """Return a dict of motor name → Motor for the first n_joints of the arm."""
     id_offset = ARM_ID_OFFSET[arm]
     return {
         JOINT_NAMES[i]: Motor(
@@ -66,8 +75,8 @@ def build_motors(arm: str, n_joints: int) -> dict[str, Motor]:
 
 
 def safe_enable_torque(bus: FeetechMotorsBus) -> None:
-    """Set Goal_Position = Present_Position before enabling torque.
-    Prevents snapping to a stale goal from a previous run."""
+    """Write Goal_Position = Present_Position before enabling torque.
+    Prevents servos from snapping to a stale goal from a previous run."""
     positions = bus.sync_read("Present_Position", normalize=False)
     for name, pos in positions.items():
         bus.write("Goal_Position", name, int(pos), normalize=False)
@@ -86,76 +95,67 @@ def main() -> None:
     if not 1 <= args.joints <= 6:
         parser.error("--joints must be between 1 and 6")
 
-    # use motors helper; specify where to write calibration values
     motors   = build_motors(args.arm, args.joints)
     out_path = CONFIG_DIR / f"calibration_{args.arm}.json"
 
     print(f"Calibrating {args.arm} arm — {args.joints} joint(s)")
     print(f"Motor IDs: { {n: m.id for n, m in motors.items()} }\n")
 
-    # bus (from feetech.py) defines which port to talk to which motors on (based on provided ids) 
     bus = FeetechMotorsBus(port=args.port, motors=motors)
     bus.connect()
     print(f"Connected to {args.port}")
 
     # ── Step 1: Clear existing homing offsets ─────────────────────────────
-    # Previous calibration attempts may have written offsets to EPROM.
-    # Zero them out so all reads are raw encoder values (0–4095).
+    # Previous calibration runs may have written offsets to EPROM. Zero them
+    # so Present_Position == raw encoder value when set_half_turn_homings runs.
     print("\nStep 1: Clearing existing homing offsets (clean slate)...")
     for name in motors:
         bus.write("Homing_Offset", name, 0, normalize=False)
     print("  Homing offsets cleared.")
 
-    # ── Step 2: Per-joint sweep ────────────────────────────────────────────
-    # Sweep one joint at a time. This prevents unsupported joints from
-    # swinging freely under gravity and recording spurious extremes.
-    print("\nStep 2: Per-joint sweep.")
-    print("  For each joint: move it to its full min AND max physical stop.")
-    print("  Hold other joints still. Press Enter when done with each joint.\n")
-
+    # ── Step 2: Per-joint calibration ─────────────────────────────────────
+    # configure_motors() clears the Phase register bit (0x10) so the servo
+    # reports Present_Position as single-turn mod-4096 — required for
+    # set_half_turn_homings to compute the correct seam offset.
     bus.disable_torque()
     bus.configure_motors()
 
-    raw_mins: dict[str, int] = {}
-    raw_maxes: dict[str, int] = {}
+    homing_offsets: dict[str, int] = {}
+    homed_mins:     dict[str, int] = {}
+    homed_maxes:    dict[str, int] = {}
+
+    print("\nStep 2: Per-joint calibration.")
+    print("  For each joint: move to center, then sweep both stops.\n")
 
     for name in motors:
-        input(f"  [{name}] Move to min and max. Press Enter when done...")
+        # Phase A — center the joint, then write the homing offset.
+        # set_half_turn_homings reads Present_Position (raw, since offset=0)
+        # and writes Homing_Offset = 2047 - raw_center to servo EPROM.
+        # After this, Present_Position(center) == 2047, and the encoder seam
+        # sits in the dead gap on the far side of the arc.
+        input(f"  [{name}] Move to the CENTER of this joint's travel arc. Press Enter...")
+        offsets = bus.set_half_turn_homings([name])
+        homing_offsets[name] = int(offsets[name])
+        print(f"    → homing_offset = {homing_offsets[name]}")
+
+        # Phase B — sweep to both physical stops.
+        # record_ranges_of_motion reads Present_Position live (now in homed
+        # frame) and tracks min/max until Enter is pressed. Because the seam
+        # is parked in the dead gap, the full travel arc is contiguous and
+        # both limits land in 0–4095 with no wrap-around.
+        print(f"  [{name}] Sweep to BOTH physical stops. Press Enter when done.")
         mins, maxes = bus.record_ranges_of_motion(motors=[name])
-        raw_mins[name]  = int(mins[name])
-        raw_maxes[name] = int(maxes[name])
-        span = raw_maxes[name] - raw_mins[name]
-        print(f"    → min={raw_mins[name]}  max={raw_maxes[name]}  "
+        homed_mins[name]  = int(mins[name])
+        homed_maxes[name] = int(maxes[name])
+        span = homed_maxes[name] - homed_mins[name]
+        print(f"    → min={homed_mins[name]}  max={homed_maxes[name]}  "
               f"span={span} counts ({span / 4096 * 360:.1f}°)\n")
 
-    print("Ranges recorded:")
-    for name in motors:
-        print(f"  {name:<16}  min={raw_mins[name]}  max={raw_maxes[name]}")
-
-    # ── Step 3: Compute homing offsets ────────────────────────────────────
-    # Shift each joint so its center of travel reads as 2047.
-    # This ensures both stops are well within the 0–4095 register range.
-    homing_offsets: dict[str, int] = {}
-    for name in motors:
-        raw_mid = (raw_mins[name] + raw_maxes[name]) // 2
-        homing_offsets[name] = 2047 - raw_mid
-
-    print("\nStep 3: Writing homing offsets (center of travel → 2047)...")
-    for name, offset in homing_offsets.items():
-        bus.write("Homing_Offset", name, offset, normalize=False)
-        print(f"  {name:<16} raw_mid={(raw_mins[name]+raw_maxes[name])//2}  offset={offset}")
-
-    # ── Step 4: Compute homed limits ──────────────────────────────────────
-    # Homed position = raw + homing_offset.
-    # Apply same offset to the raw limits recorded in step 2.
-    homed_mins  = {n: raw_mins[n]  + homing_offsets[n] for n in motors}
-    homed_maxes = {n: raw_maxes[n] + homing_offsets[n] for n in motors}
-
-    print("\nHomed ranges (used for normalization):")
+    print("Homed ranges (used for normalization):")
     for name in motors:
         print(f"  {name:<16}  min={homed_mins[name]}  max={homed_maxes[name]}")
 
-    # ── Step 5: Build and write calibration ───────────────────────────────
+    # ── Step 3: Build and write calibration ───────────────────────────────
     calibration: dict[str, MotorCalibration] = {
         name: MotorCalibration(
             id=motor.id,
@@ -167,11 +167,11 @@ def main() -> None:
         for name, motor in motors.items()
     }
 
-    print("\nStep 4: Writing calibration to servo EPROM registers...")
+    print("\nStep 3: Writing calibration to servo EPROM registers...")
     bus.write_calibration(calibration)
     print("Calibration written.")
 
-    # ── Step 6: Save JSON backup ───────────────────────────────────────────
+    # ── Step 4: Save JSON backup ───────────────────────────────────────────
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
     backup = {name: dataclasses.asdict(cal) for name, cal in calibration.items()}
     with open(out_path, "w") as f:
