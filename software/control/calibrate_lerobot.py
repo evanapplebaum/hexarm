@@ -52,6 +52,7 @@ CONFIG_DIR    = Path("software/config")
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# creates dictionary of which motor ids are to be calibrated
 def build_motors(arm: str, n_joints: int) -> dict[str, Motor]:
     id_offset = ARM_ID_OFFSET[arm]
     return {
@@ -75,7 +76,7 @@ def safe_enable_torque(bus: FeetechMotorsBus) -> None:
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="LeRobot calibration for leader or follower arm")
+    parser = argparse.ArgumentParser(description="LeRobot calibration for leader OR follower arm")
     parser.add_argument("--arm",    required=True, choices=["leader", "follower"])
     parser.add_argument("--joints", type=int, default=6,
                         help="Number of joints to calibrate (default: 6)")
@@ -85,12 +86,14 @@ def main() -> None:
     if not 1 <= args.joints <= 6:
         parser.error("--joints must be between 1 and 6")
 
+    # use motors helper; specify where to write calibration values
     motors   = build_motors(args.arm, args.joints)
     out_path = CONFIG_DIR / f"calibration_{args.arm}.json"
 
     print(f"Calibrating {args.arm} arm — {args.joints} joint(s)")
     print(f"Motor IDs: { {n: m.id for n, m in motors.items()} }\n")
 
+    # bus (from feetech.py) defines which port to talk to which motors on (based on provided ids) 
     bus = FeetechMotorsBus(port=args.port, motors=motors)
     bus.connect()
     print(f"Connected to {args.port}")
@@ -111,6 +114,7 @@ def main() -> None:
     print("  Hold other joints still. Press Enter when done with each joint.\n")
 
     bus.disable_torque()
+    bus.configure_motors()
 
     raw_mins: dict[str, int] = {}
     raw_maxes: dict[str, int] = {}
