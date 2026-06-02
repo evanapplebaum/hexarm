@@ -40,7 +40,7 @@ ARM_ID_OFFSET = {"follower": 0, "leader": 6}
 DEFAULT_PORT  = "/dev/ttyACM0"
 CONFIG_DIR    = Path("software/config")
 
-SLOW_VELOCITY = 150  # counts/s — ~13°/s, very slow
+SLOW_VELOCITY = 100  # counts/s — ~13°/s, very slow
 SLOW_ACCEL    = 20   # counts/s²
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
@@ -185,7 +185,7 @@ def main() -> None:
                         safe_enable_torque(bus)
                         torque_on = True
                     bus.write("Maximum_Velocity_Limit", name, SLOW_VELOCITY, normalize=False)
-                    bus.write("Acceleration",          name, SLOW_ACCEL,    normalize=False)
+                    bus.write("Acceleration", name, SLOW_ACCEL,    normalize=False)
                     bus.write("Goal_Position", name, target, normalize=True)
                 print(f"  → Moving {name} to {target:.1f}  (velocity={SLOW_VELOCITY} counts/s)")
 
