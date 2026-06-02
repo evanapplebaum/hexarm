@@ -96,7 +96,6 @@ def main() -> None:
     torque_on  = False
     bus_lock   = threading.Lock()
     paused     = threading.Event()   # set = display paused
-    first_draw = [True]              # list so display thread can mutate it
 
     header  = f" {'#':>2}  {'Joint':<16}  {'Raw':>6}  {'Norm':>8}"
     divider = "─" * len(header)
@@ -114,11 +113,8 @@ def main() -> None:
                     time.sleep(0.1)
                     continue
 
-            if not first_draw[0]:
-                sys.stdout.write(f"\033[{n_lines}A")
-            else:
-                first_draw[0] = False
-
+            # Always cursor-up — blank lines reserved before thread starts
+            sys.stdout.write(f"\033[{n_lines}A")
             sys.stdout.write(header + "\n")
             sys.stdout.write(divider + "\n")
             for i, name in enumerate(active_joints, 1):
@@ -132,6 +128,9 @@ def main() -> None:
     thread = threading.Thread(target=display_loop, daemon=True)
 
     print(f"\nMonitoring {args.arm} arm. Press Enter to issue a command, Ctrl+C to exit.\n")
+    # Reserve exactly n_lines lines so cursor-up always lands at table start
+    sys.stdout.write("\n" * n_lines)
+    sys.stdout.flush()
     thread.start()
 
     # ── Input loop ────────────────────────────────────────────────────────────
@@ -151,7 +150,6 @@ def main() -> None:
 
             if not cmd:
                 # Resume with a clean redraw
-                first_draw[0] = True
                 paused.clear()
                 thread = threading.Thread(target=display_loop, daemon=True)
                 thread.start()
