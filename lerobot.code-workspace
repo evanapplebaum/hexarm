@@ -1,0 +1,10 @@
+{
+    "folders": [
+        {
+            "path": "."
+        },
+        {
+            "path": "../../../../data/lerobot/src/lerobot/motors/feetech"
+        }
+    ]
+}

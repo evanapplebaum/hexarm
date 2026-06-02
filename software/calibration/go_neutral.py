@@ -34,14 +34,11 @@ ARM_ID_OFFSET = {"follower": 0, "leader": 6}
 DEFAULT_PORT  = "/dev/ttyACM0"
 CONFIG_DIR    = Path("software/config")
 
-# Typical joint travel is ~2048 counts (180°). Max_Velocity is in counts/s.
-# velocity = 2048 / duration  →  duration=2s gives 1024 counts/s (~90°/s),
-#                                 duration=5s gives  410 counts/s (~36°/s).
-TYPICAL_TRAVEL_COUNTS = 2048
-ACCELERATION          = 50   # counts/s² — gentle ramp; same as move_one.py
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
+# reads json file @ passed path location
+# returns a 
 def load_json(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"Missing config file: {path}")
