@@ -33,5 +33,12 @@
     "homing_offset": 966,
     "range_min": 889,
     "range_max": 3107
+  },
+  "gripper": {
+    "id": 12,
+    "drive_mode": 0,
+    "homing_offset": -1142,
+    "range_min": 1151,
+    "range_max": 3663
   }
 }
