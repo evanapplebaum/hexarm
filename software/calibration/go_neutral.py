@@ -2,19 +2,22 @@
 """
 go_neutral.py — Move arm slowly to the captured neutral pose.
 
-Sets Max_Velocity and Acceleration on each joint so the servo hardware
-profiles the move, then fires a single Goal_Position command. Polls
-Present_Velocity until motion stops.
+Sets Maximum_Velocity_Limit and Acceleration on each joint so the servo
+hardware profiles the move, then commands Goal_Position. Polls
+Present_Velocity until each joint stops before moving to the next.
 
 Usage (from hexarm root, conda lerobot env):
   conda activate lerobot
-  python software/control/go_neutral.py --arm follower
-  python software/control/go_neutral.py --arm leader --duration 3.0
+  python software/calibration/go_neutral.py --arm follower
+  python software/calibration/go_neutral.py --arm leader --duration 3.0
+  python software/calibration/go_neutral.py --arm follower --order 3 1 2 4 5 6
 
 Arguments:
   --arm       follower | leader  (required)
-  --duration  approximate move duration in seconds (default: 2.0)
-              Used to compute Max_Velocity: assumes ~2048 counts of travel.
+  --duration  approximate per-joint move duration in seconds (default: 2.0)
+              Used to compute Maximum_Velocity_Limit: assumes ~2048 counts.
+  --order     joint index numbers (1–6) in the order to move them.
+              If omitted, all joints move simultaneously.
   --port      serial port (default: /dev/ttyACM0)
 """
 
@@ -34,11 +37,17 @@ ARM_ID_OFFSET = {"follower": 0, "leader": 6}
 DEFAULT_PORT  = "/dev/ttyACM0"
 CONFIG_DIR    = Path("software/config")
 
+# Typical joint travel is ~2048 counts (180°). Velocity is in counts/s.
+# velocity = TYPICAL_TRAVEL_COUNTS / duration
+# e.g. duration=2s → 1024 counts/s (~90°/s)
+#      duration=5s →  410 counts/s (~36°/s)
+TYPICAL_TRAVEL_COUNTS = 2048
+ACCELERATION          = 50    # counts/s² — gentle ramp
+VELOCITY_STOP_THRESH  = 10    # counts/s — "close enough to stopped"
+POLL_HZ               = 20
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-# reads json file @ passed path location
-# returns a 
 def load_json(path: Path) -> dict:
     if not path.exists():
         raise FileNotFoundError(f"Missing config file: {path}")
@@ -64,13 +73,31 @@ def safe_enable_torque(bus: FeetechMotorsBus) -> None:
     bus.sync_write("Goal_Position", positions, normalize=True)
     bus.enable_torque()
 
+
+def move_and_wait(bus: FeetechMotorsBus, name: str,
+                  target: float, velocity: int, timeout: float) -> float:
+    """Command one joint to target and block until it stops. Returns elapsed time."""
+    bus.write("Maximum_Velocity_Limit", name, velocity,     normalize=False)
+    bus.write("Acceleration",           name, ACCELERATION, normalize=False)
+    bus.write("Goal_Position",          name, target,       normalize=True)
+
+    t_start = time.time()
+    while time.time() - t_start < timeout:
+        v = bus.read("Present_Velocity", name, normalize=False)
+        if abs(float(v)) < VELOCITY_STOP_THRESH:
+            break
+        time.sleep(1 / POLL_HZ)
+    return time.time() - t_start
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Move arm to neutral pose")
     parser.add_argument("--arm",      required=True, choices=["leader", "follower"])
     parser.add_argument("--duration", type=float, default=2.0,
-                        help="Approximate move duration in seconds (default: 2.0)")
+                        help="Approximate move duration per joint in seconds (default: 2.0)")
+    parser.add_argument("--order",    type=int, nargs="+", metavar="N",
+                        help="Joint indices (1–6) in move order. Omit to move all at once.")
     parser.add_argument("--port",     default=DEFAULT_PORT)
     args = parser.parse_args()
 
@@ -78,57 +105,69 @@ def main() -> None:
     neutral_data = load_json(CONFIG_DIR / f"neutral_{args.arm}.json")
 
     # Only move joints present in both files
-    active_joints = [n for n in JOINT_NAMES
-                     if n in cal_data and n in neutral_data]
+    active_joints = [n for n in JOINT_NAMES if n in cal_data and n in neutral_data]
     skipped = [n for n in JOINT_NAMES if n not in active_joints]
     if skipped:
         print(f"Skipping joints with missing calibration or neutral: {skipped}")
     if not active_joints:
         raise RuntimeError("No joints to move — run calibrate_lerobot.py and record_neutral.py first.")
 
+    # Resolve --order to joint names
+    if args.order:
+        for idx in args.order:
+            if not (1 <= idx <= len(JOINT_NAMES)):
+                raise ValueError(f"--order index {idx} out of range (1–{len(JOINT_NAMES)})")
+        move_order = [JOINT_NAMES[i - 1] for i in args.order
+                      if JOINT_NAMES[i - 1] in active_joints]
+        sequential = True
+    else:
+        move_order = active_joints
+        sequential = False
+
     calibration = {name: MotorCalibration(**cal_data[name]) for name in active_joints}
     neutral     = {name: float(neutral_data[name]) for name in active_joints}
     motors      = build_motors(args.arm, active_joints)
 
-    # Velocity limit derived from desired duration.
-    # Clamped to [10, 2000] to avoid stalling or unsafe speeds.
+    # Velocity derived from duration, clamped to safe range
     velocity = max(10, min(2000, int(TYPICAL_TRAVEL_COUNTS / args.duration)))
+    timeout  = args.duration * 2
 
     bus = FeetechMotorsBus(port=args.port, motors=motors, calibration=calibration)
     bus.connect()
     print(f"Connected to {args.port}")
+    print(f"velocity={velocity} counts/s  accel={ACCELERATION}  "
+          f"{'sequential' if sequential else 'simultaneous'}\n")
 
     safe_enable_torque(bus)
 
-    # Set motion profile on each joint before commanding the goal.
-    # Max_Velocity limits servo speed in position mode (counts/s).
-    # Acceleration ramps the velocity up/down (counts/s²).
+    if sequential:
+        # Move one joint at a time in the specified order
+        for name in move_order:
+            print(f"  Moving {name} → {neutral[name]:.1f}...", end=" ", flush=True)
+            elapsed = move_and_wait(bus, name, neutral[name], velocity, timeout)
+            print(f"done ({elapsed:.2f}s)")
+    else:
+        # Set motion profile for all joints, then fire simultaneously
+        for name in active_joints:
+            bus.write("Maximum_Velocity_Limit", name, velocity,     normalize=False)
+            bus.write("Acceleration",           name, ACCELERATION, normalize=False)
+
+        print(f"Moving all joints to neutral...", end=" ", flush=True)
+        bus.sync_write("Goal_Position", neutral, normalize=True)
+
+        t_start = time.time()
+        while time.time() - t_start < timeout:
+            velocities = bus.sync_read("Present_Velocity", normalize=False)
+            if all(abs(float(v)) < VELOCITY_STOP_THRESH for v in velocities.values()):
+                break
+            time.sleep(1 / POLL_HZ)
+        print(f"done ({time.time() - t_start:.2f}s)")
+
+    # Restore velocity limit to 0 (= no limit) so other scripts are unaffected
     for name in active_joints:
-        bus.write("Max_Velocity",  name, velocity,     normalize=False)
-        bus.write("Acceleration",  name, ACCELERATION, normalize=False)
+        bus.write("Maximum_Velocity_Limit", name, 0, normalize=False)
 
-    print(f"Moving {args.arm} arm to neutral "
-          f"(velocity={velocity} counts/s, accel={ACCELERATION})...")
-    bus.sync_write("Goal_Position", neutral, normalize=True)
-
-    # Poll Present_Velocity until all joints stop (threshold: <10 counts/s).
-    # Timeout is 2× the requested duration as a safety net.
-    timeout   = args.duration * 2
-    t_start   = time.time()
-    poll_hz   = 20
-    while time.time() - t_start < timeout:
-        velocities = bus.sync_read("Present_Velocity", normalize=False)
-        if all(abs(float(v)) < 10 for v in velocities.values()):
-            break
-        time.sleep(1 / poll_hz)
-
-    elapsed = time.time() - t_start
-    print(f"Reached neutral in {elapsed:.2f}s:")
-
-    # Restore Max_Velocity to 0 (= no limit) so other scripts are unaffected.
-    for name in active_joints:
-        bus.write("Max_Velocity", name, 0, normalize=False)
-
+    print("\nFinal positions:")
     final = bus.sync_read("Present_Position", normalize=True)
     for name in active_joints:
         print(f"  {name:<16}  {float(final[name]):.1f}  (target {neutral[name]:.1f})")

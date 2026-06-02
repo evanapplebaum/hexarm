@@ -184,8 +184,8 @@ def main() -> None:
                     if not torque_on:
                         safe_enable_torque(bus)
                         torque_on = True
-                    bus.write("Max_Velocity", name, SLOW_VELOCITY, normalize=False)
-                    bus.write("Acceleration", name, SLOW_ACCEL,    normalize=False)
+                    bus.write("Maximum_Velocity_Limit", name, SLOW_VELOCITY, normalize=False)
+                    bus.write("Acceleration",          name, SLOW_ACCEL,    normalize=False)
                     bus.write("Goal_Position", name, target, normalize=True)
                 print(f"  → Moving {name} to {target:.1f}  (velocity={SLOW_VELOCITY} counts/s)")
 
