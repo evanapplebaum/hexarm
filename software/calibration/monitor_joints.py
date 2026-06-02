@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """
-monitor_joints.py — Live joint position monitor (raw + normalized).
+monitor_joints.py — Live joint monitor with interactive position control.
 
-Displays a refreshing table of Present_Position for each joint on the
-specified arm, showing both raw counts (0–4095) and normalized (0–100).
-Requires calibration to be present for normalized values.
+Displays a live table of Present_Position (raw + normalized) for the specified
+arm. While monitoring, you can command any joint to a target position and it
+will move there very slowly.
 
 Usage (from hexarm root, conda lerobot env):
   conda activate lerobot
@@ -14,13 +14,18 @@ Usage (from hexarm root, conda lerobot env):
 Arguments:
   --arm    follower | leader  (required)
   --port   serial port (default: /dev/ttyACM0)
-  --hz     refresh rate in Hz (default: 10)
+  --hz     display refresh rate in Hz (default: 10)
 
-Press Ctrl+C to exit.
+Controls:
+  Enter          open command prompt
+  <n> <target>   move joint n to normalized target (e.g. '2 75.0')
+  Ctrl+C         exit
 """
 
 import argparse
 import json
+import sys
+import threading
 import time
 from pathlib import Path
 
@@ -34,6 +39,9 @@ JOINT_NAMES   = ["shoulder_pan", "shoulder_lift", "elbow_flex",
 ARM_ID_OFFSET = {"follower": 0, "leader": 6}
 DEFAULT_PORT  = "/dev/ttyACM0"
 CONFIG_DIR    = Path("software/config")
+
+SLOW_VELOCITY = 150  # counts/s — ~13°/s, very slow
+SLOW_ACCEL    = 20   # counts/s²
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -57,60 +65,144 @@ def load_calibration(arm: str) -> dict[str, MotorCalibration] | None:
         data = json.load(f)
     return {name: MotorCalibration(**vals) for name, vals in data.items()}
 
+
+def safe_enable_torque(bus: FeetechMotorsBus) -> None:
+    """Set Goal_Position = Present_Position for all joints before enabling."""
+    positions = bus.sync_read("Present_Position", normalize=False)
+    for name, pos in positions.items():
+        bus.write("Goal_Position", name, int(float(pos)), normalize=False)
+    bus.enable_torque()
+
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Live joint position monitor")
+    parser = argparse.ArgumentParser(description="Live joint monitor + control")
     parser.add_argument("--arm",  required=True, choices=["leader", "follower"])
     parser.add_argument("--port", default=DEFAULT_PORT)
-    parser.add_argument("--hz",   type=float, default=10.0,
-                        help="Refresh rate in Hz (default: 10)")
+    parser.add_argument("--hz",   type=float, default=10.0)
     args = parser.parse_args()
 
     calibration = load_calibration(args.arm)
     if calibration is None:
-        print("Warning: no calibration found — normalized column will be absent.")
+        print("Warning: no calibration found — normalized column will show n/a.")
 
-    active_joints = (list(calibration.keys()) if calibration
-                     else JOINT_NAMES)
-    motors = build_motors(args.arm, active_joints)
+    active_joints = list(calibration.keys()) if calibration else JOINT_NAMES
+    motors        = build_motors(args.arm, active_joints)
 
-    bus = FeetechMotorsBus(port=args.port, motors=motors,
-                           calibration=calibration)
+    bus = FeetechMotorsBus(port=args.port, motors=motors, calibration=calibration)
     bus.connect()
     bus.disable_torque()
 
-    header  = f"{'Joint':<16}  {'Raw':>6}  {'Norm':>8}"
-    divider = "-" * len(header)
-    n_lines = len(active_joints) + 3  # header + divider + joints + blank
+    torque_on  = False
+    bus_lock   = threading.Lock()
+    paused     = threading.Event()   # set = display paused
+    first_draw = [True]              # list so display thread can mutate it
 
-    print(f"\nMonitoring {args.arm} arm at {args.hz}Hz. Ctrl+C to exit.\n")
-    print(header)
-    print(divider)
-    for _ in active_joints:
-        print()  # reserve lines
+    header  = f" {'#':>2}  {'Joint':<16}  {'Raw':>6}  {'Norm':>8}"
+    divider = "─" * len(header)
+    n_lines = len(active_joints) + 2  # header + divider + joints
 
-    try:
-        while True:
-            raw  = bus.sync_read("Present_Position", normalize=False)
-            norm = (bus.sync_read("Present_Position", normalize=True)
-                    if calibration else {})
+    # ── Display thread ────────────────────────────────────────────────────────
+    def display_loop():
+        while not paused.is_set():
+            with bus_lock:
+                try:
+                    raw  = bus.sync_read("Present_Position", normalize=False)
+                    norm = (bus.sync_read("Present_Position", normalize=True)
+                            if calibration else {})
+                except Exception:
+                    time.sleep(0.1)
+                    continue
 
-            # Move cursor up to overwrite the table
-            print(f"\033[{n_lines - 1}A", end="")
-            print(header)
-            print(divider)
-            for name in active_joints:
-                r = int(float(raw[name]))
-                n = f"{float(norm[name]):6.1f}" if name in norm else "  n/a "
-                print(f"{name:<16}  {r:>6}  {n:>8}")
+            if not first_draw[0]:
+                sys.stdout.write(f"\033[{n_lines}A")
+            else:
+                first_draw[0] = False
+
+            sys.stdout.write(header + "\n")
+            sys.stdout.write(divider + "\n")
+            for i, name in enumerate(active_joints, 1):
+                r = int(float(raw.get(name, 0)))
+                n = (f"{float(norm[name]):8.1f}" if name in norm else "     n/a")
+                sys.stdout.write(f" {i:>2}  {name:<16}  {r:>6}  {n}\n")
+            sys.stdout.flush()
 
             time.sleep(1 / args.hz)
 
+    thread = threading.Thread(target=display_loop, daemon=True)
+
+    print(f"\nMonitoring {args.arm} arm. Press Enter to issue a command, Ctrl+C to exit.\n")
+    thread.start()
+
+    # ── Input loop ────────────────────────────────────────────────────────────
+    try:
+        while True:
+            input()  # block until Enter
+
+            # Pause display and wait for thread to finish its current cycle
+            paused.set()
+            time.sleep(1 / args.hz + 0.05)
+
+            try:
+                cmd = input(f"  Joint (1–{len(active_joints)}) + target [0–100]"
+                            f"  (e.g. '2 75.0'), or Enter to resume: ").strip()
+            except KeyboardInterrupt:
+                break
+
+            if not cmd:
+                # Resume with a clean redraw
+                first_draw[0] = True
+                paused.clear()
+                thread = threading.Thread(target=display_loop, daemon=True)
+                thread.start()
+                continue
+
+            parts = cmd.split()
+            valid = True
+
+            if len(parts) != 2:
+                print("  Format: <joint_number> <target>  e.g. '2 75.0'")
+                valid = False
+
+            if valid:
+                try:
+                    joint_idx = int(parts[0])
+                    target    = float(parts[1])
+                except ValueError:
+                    print("  Invalid — joint must be an integer, target a number.")
+                    valid = False
+
+            if valid and not (1 <= joint_idx <= len(active_joints)):
+                print(f"  Joint must be 1–{len(active_joints)}")
+                valid = False
+
+            if valid and not (0.0 <= target <= 100.0):
+                print("  Target must be between 0 and 100.")
+                valid = False
+
+            if valid:
+                name = active_joints[joint_idx - 1]
+                with bus_lock:
+                    if not torque_on:
+                        safe_enable_torque(bus)
+                        torque_on = True
+                    bus.write("Max_Velocity", name, SLOW_VELOCITY, normalize=False)
+                    bus.write("Acceleration", name, SLOW_ACCEL,    normalize=False)
+                    bus.write("Goal_Position", name, target, normalize=True)
+                print(f"  → Moving {name} to {target:.1f}  (velocity={SLOW_VELOCITY} counts/s)")
+
+            # Brief pause so user can read feedback, then resume display
+            time.sleep(0.8)
+            first_draw[0] = True
+            paused.clear()
+            thread = threading.Thread(target=display_loop, daemon=True)
+            thread.start()
+
     except KeyboardInterrupt:
-        print("\n\nStopped.")
-    finally:
-        bus.disconnect()
+        pass
+
+    print("\n\nStopped.")
+    bus.disconnect()
 
 
 if __name__ == "__main__":
