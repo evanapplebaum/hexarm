@@ -51,7 +51,7 @@ LEADER_NAMES   = [f"leader_{j}"   for j in JOINT_NAMES]
 
 CONFIG_DIR   = Path("software/config")
 DEFAULT_PORT = "/dev/ttyACM0"
-DEFAULT_HZ   = 20
+DEFAULT_HZ   = 50
 
 # ── Helpers ────────────────────────────────────────────────────────────────────
 

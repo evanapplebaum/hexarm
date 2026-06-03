@@ -119,9 +119,10 @@ def go_neutral(
 
     elapsed = time.time() - t_start
 
-    # Restore velocity limit to 0 (= no limit) so other scripts are unaffected
+    # Restore motion profile to 0 (= no limit) so other scripts are unaffected
     for name in active_joints:
         bus.write("Maximum_Velocity_Limit", name, 0, normalize=False)
+        bus.write("Acceleration",           name, 0, normalize=False)
 
     print(f"Done ({elapsed:.2f}s). Final positions:")
     final = bus.sync_read("Present_Position", normalize=True)
