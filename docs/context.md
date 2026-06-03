@@ -155,7 +155,15 @@ hexarm/
 ├── simulation/
 │   └── urdf/
 ├── software/
-│   ├── control/                        ← host-side Python scripts (run from repo root)
+│   ├── control/                        ← application-level scripts (run from repo root, conda lerobot)
+│   │   └── teleop.py                   ← leader-follower teleoperation; single bus, 12 motors; ✅ working (2026-06-03)
+│   ├── calibration/                    ← LeRobot-based calibration and arm control scripts
+│   │   ├── calibrate_lerobot.py        ← per-joint LeRobot calibration (--arm leader|follower); needs rewrite (see Encoder Wrap-Around)
+│   │   ├── go_neutral.py               ← move arm(s) to captured neutral pose; importable by other scripts
+│   │   ├── record_neutral.py           ← capture current pose as neutral_<arm>.json
+│   │   ├── keyboard_follower.py        ← keyboard control of follower arm (normalize=False); ✅ works
+│   │   └── monitor_joints.py           ← live joint position display
+│   ├── low-lvl-setup/                  ← raw SDK diagnostics and one-time setup tools
 │   │   ├── _serial_utils.py            ← shared SDK helpers: open_sdk_port, retry wrappers (use these in new scripts)
 │   │   ├── ping_one.py                 ← ping a single servo (CLI: --port, --id, --baud)
 │   │   ├── raw_ping.py                 ← raw pyserial diagnostic, bypasses SDK entirely
@@ -164,17 +172,17 @@ hexarm/
 │   │   ├── ping_stress.py              ← stress-ping a servo N times, logs results to CSV
 │   │   ├── sdk_diag.py                 ← diagnostic — runs 5 read patterns, isolates SDK vs raw-path bugs
 │   │   ├── calibrate.py                ← interactive MIN/MAX/MID joint-limit calibration → config/limits.json
-│   │   ├── teleop.py                   ← STUB ONLY — currently has unfixed `os` import bug, no SDK calls yet
-│   │   ├── keyboard_follower.py        ← LeRobot keyboard control of follower arm (IDs 1–6); normalize=False; works
-│   │   ├── calibrate_lerobot.py        ← LeRobot calibration for leader or follower arm (--arm, --joints, --port); blocked on wrap-around (see below)
+│   │   ├── move_one.py                 ← ping, ReadPos, torque enable, move to home.json position
+│   │   ├── torque_off.py               ← interactive torque disable
+│   │   ├── flash_angle_limits.py       ← write limits.json angle limits to servo EPROM
+│   │   ├── read_register.py            ← read arbitrary EPROM/SRAM register (raw pyserial)
 │   │   ├── config.py                   ← motor IDs, port assignments (needs rewrite — Pi 5 refs)
-│   │   └── read_register.py            ← read arbitrary EPROM/SRAM register (raw pyserial, doesn't need VMIN fix)
+│   │   └── teleop.py                   ← DEPRECATED stub — ignore, superseded by software/control/teleop.py
 │   ├── scservo_sdk/                    ← Feetech official SDK (NOT a pip package — local copy)
 │   │   ├── protocol_packet_handler.py  ← packet framing/parsing — UNMODIFIED, keep upstream
 │   │   ├── sms_sts.py                  ← STS/SMS series class (correct for STS3215)
 │   │   ├── port_handler.py             ← stock readPort; only edit is timeout=0.1 (so VMIN works)
 │   │   └── ...
-│   ├── STServo_Python/                 ← DELETED (Windows venv, redundant with scservo_sdk/)
 │   ├── arduino/
 │   │   ├── ping_servo/
 │   │   │   └── ping_servo.ino          ← Arduino ping sketch (half-duplex, 1kΩ resistor wiring)
@@ -187,8 +195,11 @@ hexarm/
 │   ├── utils/
 │   └── config/
 │       ├── limits.json                 ← joint travel limits (populated by calibrate.py, leader arm)
-│       ├── calibration_follower.json   ← LeRobot calibration backup (follower arm; needs redo after wrap-around fix)
-│       └── calibration_leader.json     ← LeRobot calibration backup (leader arm 4 joints; needs redo after wrap-around fix)
+│       ├── home.json                   ← raw encoder home positions for move_one.py (IDs 1–6)
+│       ├── calibration_follower.json   ← LeRobot calibration — follower arm (IDs 1–6); ✅ working
+│       ├── calibration_leader.json     ← LeRobot calibration — leader arm (IDs 7–12); ✅ working
+│       ├── neutral_follower.json       ← captured neutral pose, normalized 0–100 (follower)
+│       └── neutral_leader.json         ← captured neutral pose, normalized 0–100 (leader)
 ├── .venv/                              ← Python venv (recreate per platform — NOT cross-platform)
 └── .gitignore
 ```
@@ -386,29 +397,29 @@ See `docs/debugging/servo-comms-debug-log.md` Phase 5 for the actual root cause 
 | port_handler.py reverted to upstream readPort | ✅ Done (2026-05-25) |
 | LeRobot conda env (Python 3.12) on Jetson | ✅ Done (2026-05-28, /data/miniconda3/envs/lerobot) |
 | PyTorch installed (cu126, Jetson) | ✅ Done (2026-05-28, from download.pytorch.org/whl/cu126) |
-| LeRobot pip install -e ".[feetech]" | ⚠️ In progress (2026-05-28) |
+| LeRobot pip install -e ".[feetech]" | ✅ Done (2026-05-31) |
 | LeRobot installed in Mac venv | ❌ Not possible (Intel Mac) |
 | **Hardware / Servos** | |
 | Mac → board → servo communication working | ⚠️ Not yet tested (USB-Servo mode) |
 | Jetson → board → servo communication working | ✅ Done (2026-05-26, USB, /dev/ttyACM0) |
 | Driver board UART wiring to Jetson | ✅ Done (USB-Servo mode, ttyACM0 via cdc_acm driver) |
-| Servo IDs assigned (1–6 leader, 1–6 follower on separate buses) | ⚠️ Leader wired; follower not yet wired. Follower IDs must be 1–6 (not 7–12) |
-| Bus communication test (ping all servos) | ⚠️ Only ID 2 verified end-to-end (2026-05-25, on Pi) |
+| Servo IDs assigned — follower 1–6, leader 7–12, single bus | ✅ Done — both arms on /dev/ttyACM0; see LeRobot section for ID convention |
+| Bus communication test (all 12 servos) | ✅ Done (2026-06-03, both arms responding, teleop confirmed) |
 | SDK path (ping_one, calibrate) working on Jetson | ✅ Done (2026-05-26, sdk_diag 5/5, ping_one confirmed) |
-| Angle limits flashed to servo EPROM | ⏳ Todo (run flash_angle_limits.py when all servos wired) |
-| Joint limit calibration for all 12 servos | ⏳ Todo (wire remaining servos first) |
+| Angle limits flashed to servo EPROM | ⏳ Todo |
 | **Application** | |
 | config.py rewrite (Jetson ports, remove Pi 5 / Pi Zero 2W refs) | ⏳ Todo |
 | move_one.py — ping, ReadPos, torque enable, home move | ✅ Done (2026-05-28) |
 | torque_off.py — interactive torque disable | ✅ Done (2026-05-28) |
 | flash_angle_limits.py — write limits.json to servo EPROM | ✅ Done (2026-05-28) |
 | keyboard_follower.py — LeRobot keyboard control of follower arm | ✅ Done (2026-05-31) |
-| calibrate_lerobot.py — per-joint LeRobot calibration, both arms | ⚠️ Needs rewrite — current version hand-rolls offset math, never calls configure_motors(). Fix designed 2026-06-01 (see Encoder Wrap-Around section) |
+| calibrate_lerobot.py — per-joint LeRobot calibration, both arms | ⚠️ Calibration data working in practice; script needs rewrite (hand-rolls offset math, never calls configure_motors()). Fix designed 2026-06-01 (see Encoder Wrap-Around section) |
 | LeRobot calibration — encoder wrap-around fix | ✅ Solved conceptually (2026-06-01); ⏳ code rewrite pending |
-| capture_neutral.py — capture normalized neutral pose | ⏳ Todo (after calibration fixed) |
-| teleop.py (currently stub with `os` import bug) | ⏳ Todo — full implementation |
+| go_neutral.py — move arm(s) to neutral; importable | ✅ Done — both arms working (2026-06-03) |
+| record_neutral.py — capture normalized neutral pose | ✅ Done — neutral_follower.json and neutral_leader.json captured |
+| teleop.py — leader-follower teleoperation | ✅ Done (2026-06-03, software/control/teleop.py) |
+| First teleoperation test | ✅ Done (2026-06-03, confirmed working perfectly) |
 | .gitignore for CSV stress-test artifacts | ⏳ Todo |
-| First teleoperation test | ⏳ Todo |
 | Dataset recording | ⏳ Todo |
 | Policy training | ⏳ Todo |
 
@@ -613,7 +624,7 @@ while True:
 
 ### Current state of calibration files
 
-Both `calibration_follower.json` and `calibration_leader.json` are **stale** — generated before the fix was understood. Re-run calibration with the corrected flow above (configure_motors → home-at-center → record). The values will be valid once the rewritten `calibrate_lerobot.py` lands.
+Both `calibration_follower.json` and `calibration_leader.json` were generated with the old script, but in practice the calibration data is good enough for teleoperation — both arms are tracking correctly. A clean re-calibration using the fixed flow is still recommended before dataset recording to ensure precise normalization.
 
 ### Remaining implementation work
 
@@ -634,4 +645,14 @@ The physics is solved; the code is not yet rewritten. `calibrate_lerobot.py` sti
 - `torque_off.py`: interactive torque disable, same ID collection as move_one.py
 - `flash_angle_limits.py`: reads limits.json, writes MIN/MAX angle limits to servo EPROM for all IDs; servo needs power cycle after
 
-*Last updated: 2026-06-01*
+### teleop.py — confirmed working (2026-06-03)
+
+- Located at `software/control/teleop.py`
+- Single `FeetechMotorsBus` on `/dev/ttyACM0` with all 12 motors (prefixed `follower_*` and `leader_*`)
+- Startup: safe-enables both arms → `go_neutral` both simultaneously → disables leader torque → loop starts
+- Loop: `sync_read` leader normalized positions (0–100) → 1:1 dict remap → `sync_write` to follower at 20 Hz
+- Arms are physically identical (not mirrored), so `drive_mode=0` + 1:1 normalized mapping = matching poses
+- No pre-running `go_neutral` needed — teleop handles its own startup sequence
+- Usage: `conda activate lerobot && python software/control/teleop.py [--hz 20]`
+
+*Last updated: 2026-06-03*

@@ -5,10 +5,14 @@ teleop.py — Leader-follower teleoperation.
 Leader arm runs torque-free (move it by hand). Follower tracks the leader
 in real time at a fixed rate using calibrated normalized positions (0–100).
 
+Startup sequence (handled automatically):
+  1. Both arms torque-enabled and moved to their captured neutral poses.
+  2. Leader torque disabled — move it freely.
+  3. Teleop loop starts — follower tracks leader from neutral.
+
 Prerequisites:
-  - Both arms calibrated (software/config/calibration_*.json exist)
-  - Both arms have neutral poses captured (software/config/neutral_*.json exist)
-  - Run go_neutral.py on both arms before starting teleop
+  - Both arms calibrated  (software/config/calibration_*.json)
+  - Neutral poses captured (software/config/neutral_*.json)
 
 Usage (from hexarm root, conda lerobot env):
   conda activate lerobot
@@ -19,8 +23,13 @@ Ctrl-C to stop. Torque is disabled on exit.
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
+
+# Add software/ to path so we can import from sibling packages
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from calibration.go_neutral import go_neutral  # noqa: E402
 
 from lerobot.motors.feetech import FeetechMotorsBus
 from lerobot.motors.motors_bus import Motor, MotorCalibration, MotorNormMode
@@ -136,24 +145,30 @@ def main() -> None:
                         help=f"Control loop rate in Hz (default: {DEFAULT_HZ})")
     args = parser.parse_args()
 
-    cal_follower = load_json(CONFIG_DIR / "calibration_follower.json")
-    cal_leader   = load_json(CONFIG_DIR / "calibration_leader.json")
+    cal_follower     = load_json(CONFIG_DIR / "calibration_follower.json")
+    cal_leader       = load_json(CONFIG_DIR / "calibration_leader.json")
+    neutral_follower = load_json(CONFIG_DIR / "neutral_follower.json")
+    neutral_leader   = load_json(CONFIG_DIR / "neutral_leader.json")
 
     bus = build_bus(args.port, cal_follower, cal_leader)
     bus.connect()
     print(f"Connected to {args.port}  ({len(bus.motors)} motors)\n")
 
-    # Leader runs torque-free so the operator can move it by hand
+    # Enable torque on both arms so go_neutral can move them
+    safe_enable_torque(bus, FOLLOWER_NAMES + LEADER_NAMES)
+    print("Both arms torque: ON")
+
+    # Move both arms to their captured neutral poses
+    neutral_all = {f"follower_{k}": v for k, v in neutral_follower.items()}
+    neutral_all.update({f"leader_{k}": v for k, v in neutral_leader.items()})
+    print("Moving both arms to neutral...")
+    go_neutral(bus, neutral_all)
+
+    # Drop leader torque — operator moves it freely from here
     bus.disable_torque(motors=LEADER_NAMES)
-    print("Leader  torque: OFF  (move freely)")
+    print("Leader torque: OFF  (move freely)\n")
 
-    # Follower freezes in place on torque engage, then tracks leader
-    safe_enable_torque(bus, FOLLOWER_NAMES)
-    print("Follower torque: ON\n")
-
-    input("Position leader arm at a comfortable starting pose, then press Enter...")
-    print()
-
+    # Follower stays torque-enabled and will immediately track the leader
     try:
         run_teleop(bus, hz=args.hz)
     except KeyboardInterrupt:
