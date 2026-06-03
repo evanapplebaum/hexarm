@@ -1,10 +1,10 @@
 {
     "folders": [
         {
-            "path": "."
+            "path": "../../../../data/lerobot/src/lerobot/motors/feetech"
         },
         {
-            "path": "../../../../data/lerobot/src/lerobot/motors/feetech"
+            "path": "."
         }
     ]
 }
