@@ -27,9 +27,10 @@ import sys
 import time
 from pathlib import Path
 
-# Add software/ to path so we can import from sibling packages
-sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from calibration.go_neutral import go_neutral  # noqa: E402
+# Add repo root (hexarm/) to path — NOT software/, which would shadow the
+# pip-installed scservo_sdk with our local copy and break LeRobot imports.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from software.calibration.go_neutral import go_neutral  # noqa: E402
 
 from lerobot.motors.feetech import FeetechMotorsBus
 from lerobot.motors.motors_bus import Motor, MotorCalibration, MotorNormMode
