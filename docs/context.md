@@ -532,6 +532,9 @@ This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `
 - Baud rate register (reg 6) and BAUD_MAP — value encoding, power-cycle requirement
 - Return delay register (reg 7) — what it does (silence before response) and what it doesn't fix (framing errors)
 - git rm vs rm — staging deletions for git, using git add -A to recover after rm
+- Python sys.path shadowing — adding a directory to sys.path exposes ALL its subdirectories as importable packages; adding `software/` shadows the pip-installed `scservo_sdk` with the local copy, breaking LeRobot. Always add the repo root, not a mid-tree directory.
+- LeRobot teleop loop design — single FeetechMotorsBus for both arms on one port; prefix motor names (follower_/leader_) to avoid collisions; 1:1 normalized mapping works when arms are physically identical with drive_mode=0
+- STS3215 Acceleration register — value 0 means no limit (like Maximum_Velocity_Limit); go_neutral must reset both to 0 on exit or downstream scripts inherit slow ramp rates
 
 ---
 
@@ -650,9 +653,15 @@ The physics is solved; the code is not yet rewritten. `calibrate_lerobot.py` sti
 - Located at `software/control/teleop.py`
 - Single `FeetechMotorsBus` on `/dev/ttyACM0` with all 12 motors (prefixed `follower_*` and `leader_*`)
 - Startup: safe-enables both arms → `go_neutral` both simultaneously → disables leader torque → loop starts
-- Loop: `sync_read` leader normalized positions (0–100) → 1:1 dict remap → `sync_write` to follower at 20 Hz
+- Loop: `sync_read` leader normalized positions (0–100) → 1:1 dict remap → `sync_write` to follower at 50 Hz
 - Arms are physically identical (not mirrored), so `drive_mode=0` + 1:1 normalized mapping = matching poses
 - No pre-running `go_neutral` needed — teleop handles its own startup sequence
-- Usage: `conda activate lerobot && python software/control/teleop.py [--hz 20]`
+- Usage: `conda activate lerobot && python software/control/teleop.py [--hz 50]`
 
-*Last updated: 2026-06-03*
+**Import path gotcha (hit 2026-06-03):** Adding `software/` to `sys.path` to import `go_neutral` shadows the pip-installed `scservo_sdk` with the local copy in `software/scservo_sdk/`. LeRobot's `feetech.py` uses `scservo_sdk.PacketHandler` which doesn't exist in the local SDK → `AttributeError`. Fix: add the repo root (`hexarm/`) to `sys.path` instead, then import as `from software.calibration.go_neutral import go_neutral`.
+
+### go_neutral.py — bug fix (2026-06-03)
+
+`go_neutral` was resetting `Maximum_Velocity_Limit` to 0 after completing but **not** resetting `Acceleration`. Leaving `Acceleration = 20` on the servos caused sluggish ramp-up in the teleop loop. Fixed: both registers are now reset to 0 on completion.
+
+*Last updated: 2026-06-03 (session 2)*
