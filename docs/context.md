@@ -29,7 +29,7 @@ The deciding question for any piece of code: *"Would a robotics interviewer ask 
 
 How Evan is approaching learning robotics, decided in a long discussion. This governs how to pace and structure work, not just how to write code.
 
-**Goal & timeline.** Evan is 22, targeting a solid robotics job. The current proof is **for recruiters** → favor breadth-with-polish and one or two deep, defensible subsystems. "Buckle down into the fine print" comes *after* landing the role. The hexarm project is the portfolio centerpiece.
+**Goal & timeline.** Evan is 22, targeting a solid robotics job. The current proof is **for recruiters** → favor breadth-with-polish and one or two deep, defensible subsystems.  The hexarm project is the portfolio centerpiece.
 
 **Core principle — optimize prediction-error density, not speed.** Learning is driven by prediction error (the gap between expected and actual is the signal that updates the model and tags memory). Fast-vs-slow is the wrong axis; both fail the same way when no error loop is closed (passive reading = high load, no signal; cargo-culting = working demo, no model). The danger of AI isn't that it writes syntax — it's that it skips the prediction-error loop and leaves you fluent-feeling but model-empty.
 
@@ -38,12 +38,12 @@ How Evan is approaching learning robotics, decided in a long discussion. This go
 **The operating loop (spiral / summit-then-backtrack):**
 1. Build the whole pipeline fast, top-down (cargo-culting OK) → this is the map / advance organizer. *(Currently pass 1.)*
 2. Log friction — every spot where reality surprised him.
-3. Rank by leverage (blocks progress? recurs? core to "knowing my shit"?).
+3. Rank by leverage (blocks progress? recurs? core to understanding key concepts?).
 4. Deep-dive the top item to first principles, **predict-first**. Only deep-dive what *bit* you — surprise + relevance is what the hippocampus prioritizes. (Calibration broke → he now owns encoders/mod-4096/sign-magnitude/normalization. He correctly did NOT deep-dive USB framing or tqdm — they didn't bite.)
 5. Consolidate by writing it up (issue → ADR/doc). The writing IS the retrieval-practice learning step, not overhead. (This unifies the project's documentation/sprint goals with the learning method.)
 6. Re-spiral.
 
-**Friction log.** Evan keeps this in his Notes app (chosen for speed — must be < 30s to log or the habit dies, ADHD tax is real). It doubles as interview-prep ("tell me about a hard bug"). Per-entry fields: **Surprise** (the prediction error, logged when it fires), Guess, Reality, **Leverage** (HIGH/MED/LOW — the backtrack trigger), Status. NOT kept as a markdown file in-repo per Evan's choice 2026-06-01.
+**Friction log.** Evan keeps this in his Notes app (chosen for speed). It doubles as interview-prep ("tell me about a hard bug"). Per-entry fields: **Surprise** (the prediction error, logged when it fires), Guess, Reality, **Leverage** (HIGH/MED/LOW — the backtrack trigger), Status. NOT kept as a markdown file in-repo per Evan's choice 2026-06-01.
 
 **Code-writing policy:** see the triage rule in AI Collaboration Style above (model-bearing → Evan writes first predict-first; glue → Claude writes). The deciding question is "would an interviewer make me whiteboard this?"
 
@@ -72,9 +72,9 @@ GitHub: `github.com/evanapplebaum/hexarm`
 - **Torque:** 19.5 kg·cm @ 7.4V
 - **Baud rate:** Factory default = **1,000,000 bps**
 - **Factory default ID:** 1 (all servos ship as ID=1)
-- **Target IDs:** Leader arm 1–6, follower arm 7–12 (not yet assigned)
+- **Target IDs:** Follower arm 1–6, leader arm 7–12
 - All servos daisy-chained on one bus per arm, addressed by unique ID
-- **Status LED:** Red LED on = powered and alive; this has been confirmed in testing
+- **Status LED:** Red LED on = powered and alive; this has been confirmed in testing. Blinking red - fault (usually overcurrent from physical blockage)
 
 ### Servo Driver Boards — Waveshare Bus Servo Adapter (A) (×2)
 - **2 boards total — one per arm**
@@ -85,8 +85,8 @@ GitHub: `github.com/evanapplebaum/hexarm`
 - **Two host interfaces:**
   - **USB (CH340 chip):** appears on Mac as `/dev/cu.usbmodem*` — use `cu` prefix, NOT `tty`
   - **UART GPIO pins:** for Raspberry Pi connection (no USB needed)
-- **Physical mode switch** on board: set to USB-Servo for Mac testing, UART-Servo for Pi
-- **Power:** separate DC barrel jack for servo bus power (12V); USB only powers CH340 logic
+- **Physical mode switch** on board: set to USB-Servo for Mac testing, UART-Servo for Pi, USB-Servo for Jetson (current and final platform)
+- **Power:** separate DC barrel jack for servo bus power (12V); 
 - Compatible with ST/SC series Feetech servos including STS3215
 - **Official Python SDK:** STservo_sdk (see software section)
 
@@ -97,7 +97,7 @@ GitHub: `github.com/evanapplebaum/hexarm`
 - **Username:** `evan0h`
 - **Network:** WiFi — IP TBD (use mDNS `eka-orin.local` for now)
 - **SSH:** `ssh evan0h@eka-orin.local` — VS Code Remote SSH confirmed working
-- **Display note:** Carrier board has DisplayPort only (no HDMI). Passive HDMI↔DP cable does NOT work — requires an active DisplayPort → HDMI adapter for initial GUI setup.
+- **Display note:** Carrier board has DisplayPort only (no HDMI). Using DP -> HDMI on rare occasions a monitor is needed to be connected directly to the Jetson
 - **Post-setup plan:** Disable GUI after oem-config to reclaim ~800MB RAM; operate permanently headless
 - **Connection to driver boards:** USB (USB-Servo mode on Waveshare board) — confirmed working 2026-05-26
 - **Serial port:** `/dev/ttyACM0` — board enumerates via `cdc_acm` driver (not `ch341`/`ttyUSB0` as expected). The CH343 chip on the board presents as a CDC ACM device on Jetson/Linux.
@@ -107,8 +107,7 @@ GitHub: `github.com/evanapplebaum/hexarm`
 ### Compute — Raspberry Pi Zero 2W (retired — kept for UART debugging reference)
 - **Status:** Was active compute; replaced by Jetson Orin Nano Super (2026-05-26)
 - **OS:** Ubuntu 24.04 Server
-- **Network:** WiFi "Apples" — IP `192.168.86.121`
-- **SSH:** `ssh ekapi@eka-pi02w.local` or `ssh ekapi@192.168.86.121`
+- **SSH:** `ssh ekapi@eka-pi02w.local`
 - **UART setup:** PL011 freed from Bluetooth via `dtoverlay=disable-bt` + `enable_uart=1` → `/dev/ttyAMA0` on GPIO 14/15
   - Pi Zero 2W: PL011 = hardware UART (reliable at 1Mbps); mini-UART = CPU-clock-dependent (unreliable). PL011 assigned to BT by default; overlay frees it.
 - **Serial console removed (2026-05-25):** Default Ubuntu image puts `console=serial0,115200` in `/boot/firmware/cmdline.txt` and enables `serial-getty@ttyAMA0.service` — either alone holds the port and eats bytes, silently breaking servo comms. Both removed. This same issue is likely to appear on the Jetson.
@@ -185,7 +184,7 @@ hexarm/
 │   │   └── ...
 │   ├── arduino/
 │   │   ├── ping_servo/
-│   │   │   └── ping_servo.ino          ← Arduino ping sketch (half-duplex, 1kΩ resistor wiring)
+│   │   │   └── ping_servo.ino          ← Arduino ping sketch (half-duplex, 1kΩ resistor wiring) - USED AS DIY SERVO DRIVER
 │   │   ├── ping_servo_uno/
 │   │   │   └── ping_servo_uno.ino      ← Uno variant
 │   │   └── st3215-src/                 ← Feetech Arduino library source (SCServo)
@@ -478,7 +477,7 @@ ssh-keygen -R eka-orin.local  # removes stale host key from ~/.ssh/known_hosts
 
 ```bash
 ssh ekapi@eka-pi02w.local     # mDNS hostname (may be slow to resolve)
-ssh ekapi@192.168.86.121      # direct IP (faster, more reliable)
+ssh ekapi@[redacted]     # direct IP (faster, more reliable)
 
 # If SSH fails with "REMOTE HOST IDENTIFICATION HAS CHANGED" (happens after reflash):
 ssh-keygen -R eka-pi02w.local  # removes stale host key from ~/.ssh/known_hosts
