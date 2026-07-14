@@ -76,19 +76,19 @@ GitHub: `github.com/evanapplebaum/hexarm`
 - All servos daisy-chained on one bus per arm, addressed by unique ID
 - **Status LED:** Red LED on = powered and alive; this has been confirmed in testing. Blinking red - fault (usually overcurrent from physical blockage)
 
-### Servo Driver Boards — Waveshare Bus Servo Adapter (A) (×2)
-- **2 boards total — one per arm**
+### Servo Driver Board — Waveshare Bus Servo Adapter (A)
+- **Current setup: ONE board carries both arms.** All 12 servos are daisy-chained on a single bus → `/dev/ttyACM0`. Follower IDs 1–6, leader IDs 7–12. A second board is on hand for a possible future two-bus split, but it is NOT in use — teleop runs single-bus (confirmed 2026-06-03).
 - Sold under "UeeKKoo" brand on Amazon but arrived in Waveshare boxes;
   Amazon listing links to the official Waveshare wiki → treat as Waveshare Bus Servo Adapter (A)
 - **Waveshare wiki:** https://www.waveshare.com/wiki/Bus_Servo_Adapter_(A)
 - Handles half-duplex bus direction switching in hardware (host sees full-duplex serial)
 - **Two host interfaces:**
-  - **USB (CH340 chip):** appears on Mac as `/dev/cu.usbmodem*` — use `cu` prefix, NOT `tty`
-  - **UART GPIO pins:** for Raspberry Pi connection (no USB needed)
-- **Physical mode switch** on board: set to USB-Servo for Mac testing, UART-Servo for Pi, USB-Servo for Jetson (current and final platform)
-- **Power:** separate DC barrel jack for servo bus power (12V); 
+  - **USB (CH340/CH343 chip):** current connection to the Jetson — enumerates as `/dev/ttyACM0` via the `cdc_acm` driver. On Mac appears as `/dev/cu.usbmodem*` — use `cu` prefix, NOT `tty`
+  - **UART GPIO pins:** used during the retired Pi era (no USB needed)
+- **Physical mode switch** on board: USB-Servo for the Jetson (current platform) and Mac testing; UART-Servo was used for the Pi
+- **Power:** separate DC barrel jack for servo bus power (12V)
 - Compatible with ST/SC series Feetech servos including STS3215
-- **Official Python SDK:** STservo_sdk (see software section)
+- **Official Python SDK:** scservo_sdk (see software section)
 
 ### Compute — Jetson Orin Nano Super
 - **Status:** ✅ SSHable as of 2026-05-26
@@ -104,14 +104,8 @@ GitHub: `github.com/evanapplebaum/hexarm`
 - **dialout group:** `sudo usermod -aG dialout evan0h` — done. Note: VS Code Remote SSH caches group memberships and may not reflect changes after reconnect. Use `newgrp dialout` as workaround, or `pkill -f vscode-server` then reconnect for a clean session.
 - **Python venv:** `/home/evan0h/evdev/hexarm/.venv` (Python 3.10), pyserial installed. Activate: `source .venv/bin/activate` from hexarm root.
 
-### Compute — Raspberry Pi Zero 2W (retired — kept for UART debugging reference)
-- **Status:** Was active compute; replaced by Jetson Orin Nano Super (2026-05-26)
-- **OS:** Ubuntu 24.04 Server
-- **SSH:** `ssh ekapi@eka-pi02w.local`
-- **UART setup:** PL011 freed from Bluetooth via `dtoverlay=disable-bt` + `enable_uart=1` → `/dev/ttyAMA0` on GPIO 14/15
-  - Pi Zero 2W: PL011 = hardware UART (reliable at 1Mbps); mini-UART = CPU-clock-dependent (unreliable). PL011 assigned to BT by default; overlay frees it.
-- **Serial console removed (2026-05-25):** Default Ubuntu image puts `console=serial0,115200` in `/boot/firmware/cmdline.txt` and enables `serial-getty@ttyAMA0.service` — either alone holds the port and eats bytes, silently breaking servo comms. Both removed. This same issue is likely to appear on the Jetson.
-- **Wiring to Waveshare board (UART-Servo mode):** Pi GPIO14/TX → Board TX, Pi GPIO15/RX → Board RX, GND → GND (straight-through, NOT crossed)
+### Compute — Raspberry Pi Zero 2W (RETIRED 2026-05-26 — kept as a pointer)
+Replaced by the Jetson Orin Nano Super. The full Pi UART bring-up chronology — PL011 vs mini-UART, `disable-bt`, the serial-console/`getty` trap, and the straight-through Waveshare wiring — lives in [`docs/debugging/servo-comms-debug-log.md`](debugging/servo-comms-debug-log.md). **One lesson carries forward to the Jetson:** a kernel serial console or `serial-getty` sitting on the servo UART silently eats RX bytes and breaks comms — always confirm it's off on whatever port the servos use (tracked under Setup Status → "Jetson — serial console verified off").
 
 ### Vision (planned)
 - Wrist-mounted camera and/or overhead workspace camera
@@ -128,30 +122,31 @@ hexarm/
 │   ├── kinematics.md                   ← kinematics notes and derivations
 │   ├── debugging/
 │   │   └── servo-comms-debug-log.md    ← full chronology of UART/SDK debugging (Phases 1–5); read before touching servo comms
-│   ├── images/
+│   ├── handoffs/                       ← session handoff docs (e.g. wrap-around calibration)
+│   ├── images/                         ← (empty scaffold — demo GIFs/photos go here)
 │   └── documentation/                  ← datasheets and manuals
 │       ├── ST3215 Communication Manual.pdf
 │       ├── ST3215-general-manual.pdf
 │       ├── Servo-bus-schematic.pdf
 │       └── sts3215_memory_table.xlsx
-├── cad/
+├── cad/                                ← (empty scaffold — Onshape parts/exports go here)
 │   ├── assembly/
 │   ├── exports/
 │   ├── parts/
 │   └── renders/
 ├── electronics/
-│   ├── bom/
+│   ├── bom/                            ← (empty scaffold)
 │   └── schematics/
-│       └── Raspberry Pi 5 Pinout.png   ← NOTE: outdated, project uses Pi Zero 2W
+│       └── Raspberry Pi 5 Pinout.png   ← NOTE: outdated — project now uses Jetson Orin Nano Super
 ├── firmware/
 │   ├── tools/
 │   │   └── set_baud_115200/
 │   │       └── set_baud_115200.ino     ← Arduino one-shot: changes servo baud 1Mbps→115200
-│   ├── lib/
-│   └── src/
+│   ├── lib/                            ← (empty scaffold)
+│   └── src/                            ← (empty scaffold)
 ├── scripts/
 │   └── setup-github.sh
-├── simulation/
+├── simulation/                         ← (empty scaffold)
 │   └── urdf/
 ├── software/
 │   ├── control/                        ← application-level scripts (run from repo root, conda lerobot)
@@ -190,8 +185,8 @@ hexarm/
 │   │   └── st3215-src/                 ← Feetech Arduino library source (SCServo)
 │   │       ├── SCServo/                ← Library with SMS_STS, SCSCL classes + examples
 │   │       └── ST Servo/               ← Alternative library variant
-│   ├── kinematics/
-│   ├── utils/
+│   ├── kinematics/                     ← (empty scaffold)
+│   ├── utils/                          ← (empty scaffold)
 │   └── config/
 │       ├── limits.json                 ← joint travel limits (populated by calibrate.py, leader arm)
 │       ├── home.json                   ← raw encoder home positions for move_one.py (IDs 1–6)
@@ -323,54 +318,19 @@ Broadcast ID = 0xFE (254) — no response expected, servo acts but does not repl
 
 ## Servo Communication — RESOLVED ✅
 
-**Status as of 2026-05-25:** End-to-end SDK path working. `calibrate.py` runs to completion. Three distinct issues encountered and resolved across multiple sessions.
+End-to-end SDK path has worked since 2026-05-25 (on the Pi) and now runs on the Jetson over `/dev/ttyACM0`. The bring-up took three stacked root causes to untangle; the full chronology (Phases 1–5) lives in [`docs/debugging/servo-comms-debug-log.md`](debugging/servo-comms-debug-log.md). Condensed:
 
-### Issue 1: No response at all (resolved 2026-05-19)
-**Root cause: Wrong UART wiring.** The Waveshare Bus Servo Adapter (A) uses **straight-through wiring** (TX→TX, RX→RX), NOT the standard crossed wiring. The board labels its pins from the host's perspective — counterintuitive and underdocumented. See `docs/debugging/servo-comms-debug-log.md` Phases 1–3.
+1. **No response — wrong wiring.** The Waveshare board uses **straight-through** wiring (TX→TX, RX→RX), not crossed; it labels pins from the host's perspective.
+2. **Intermittent "framing errors" — misdiagnosis.** A custom resync parser added to `port_handler.readPort()` was based on a self-consistent but wrong theory; it was reverted. Kept in the debug log as a cautionary tale about falsification testing.
+3. **The real cause — serial console + SDK byte-stealing.** A kernel serial console / `serial-getty` on the servo UART silently ate RX bytes, and the resync layer's `length+1` read stole a byte from `ping()`'s second transaction (`COMM_RX_CORRUPT`).
 
-### Issue 2: Intermittent responses — superseded by Issue 3 (originally "resolved" 2026-05-20)
-The Phase 4 investigation diagnosed an intermittent 0/5/6-byte response pattern as a UART framing error at the half-duplex bus turnaround, and added a custom resync parser to `port_handler.readPort()`. That diagnosis turned out to be wrong — the real cause was Issue 3 below. The Phase 4 narrative is preserved in `docs/debugging/servo-comms-debug-log.md` as a cautionary record of how a self-consistent but incorrect theory can survive without falsification testing.
+**Fixes that still apply on any platform (Jetson included):**
+- Ensure no serial console / `getty` owns the servo port (`/proc/cmdline`, `systemctl is-enabled serial-getty@<port>`).
+- `port_handler.setupPort()` opens pyserial with `timeout=0.1` (not `timeout=0`, which sets `O_NONBLOCK` and defeats VMIN).
+- `_serial_utils.set_vmin(ser, vmin=1)` so `ser.read(1)` inside the SDK actually blocks.
+- `readPort()` is stock upstream; retry/recovery lives in the `_serial_utils` wrappers (`ping_with_retry`, etc.) — the correct scope.
 
-### Issue 3: Serial console + SDK byte-stealing (resolved 2026-05-25)
-**Root causes (two stacked):**
-
-**(a) Serial console on `/dev/ttyAMA0`.** The default Ubuntu 24.04 image for Pi Zero 2W ships with `console=serial0,115200` in `/boot/firmware/cmdline.txt` AND `serial-getty@ttyAMA0.service` enabled. Either alone holds the PL011 UART at 115200 baud at the kernel level, consumes incoming bytes before pyserial can read them, and writes login-prompt characters out the TX line. This invisibly corrupted every UART transaction on the project for weeks; the previously-observed "framing error" pattern was getty interference, not a real RC transient.
-
-**(b) Custom `readPort()` stealing bytes from multi-transaction SDK calls.** The Phase 4 resync layer in `port_handler.readPort()` read `length+1` bytes from the kernel into a local buffer, then sliced and returned only `length`. For single-transaction SDK calls (like `ReadPos`), this was harmless. For `ping()` — which internally does two transactions (PING, then a READ of the model-number register at address 3) — the extra byte from the first read was the *first byte of the second response*, and dropping it caused the second transaction to time out short with `COMM_RX_CORRUPT`.
-
-**Fixes:**
-- Remove `console=serial0,115200` from `/boot/firmware/cmdline.txt`, leave `console=tty1`.
-- `sudo systemctl disable --now serial-getty@ttyAMA0.service serial-getty@serial0.service`
-- Reboot.
-- Revert `port_handler.readPort()` to upstream SDK (`return self.ser.read(length)`).
-- Retry and error recovery now live in `software/control/_serial_utils.py` wrappers (`ping_with_retry`, `read_pos_with_retry`, `write_byte_with_retry`) — the correct scope.
-
-**Two supporting fixes that survived from the wrong diagnosis (still required):**
-- `port_handler.setupPort()` opens pyserial with `timeout=0.1` (not `timeout=0`). The `timeout=0` default sets `O_NONBLOCK` on the fd, which makes `ser.read()` return 0 bytes immediately regardless of VMIN.
-- `_serial_utils.set_vmin(ser, vmin=1)` sets termios `VMIN=1` after open so that `ser.read(1)` calls inside the SDK actually block until a byte arrives.
-
-**Quick verification the Pi UART is healthy for servo use:**
-
-```bash
-cat /proc/cmdline | grep -o "console=[^ ]*"        # should show only:  console=tty1
-systemctl is-enabled serial-getty@ttyAMA0.service  # should output:     disabled
-stty -F /dev/ttyAMA0 -a | head -1                  # should NOT be stuck at 115200
-python3 software/control/raw_ping.py --id 2        # should return clean 6/6 bytes
-```
-
-### Confirmed working configuration (2026-05-25)
-- **Host:** Raspberry Pi Zero 2W (Ubuntu 24.04 server)
-- **Interface:** Hardware UART `/dev/ttyAMA0` (PL011, GPIO 14/15)
-- **Wiring:** Pi TX (GPIO 14) → Board TX, Pi RX (GPIO 15) → Board RX, GND → GND
-- **Board mode switch:** UART-Servo
-- **Board power:** 12V barrel jack only
-- **Baud rate:** 1,000,000 bps
-- **Console on ttyAMA0:** DISABLED (cmdline.txt + serial-getty)
-- **SDK readPort:** stock upstream + `timeout=0.1` setup + `VMIN=1` via `_serial_utils.open_sdk_port`
-- **Verified end-to-end:** `raw_ping.py`, `ping_one.py`, `sdk_diag.py` (all 5 variants 5/5), `calibrate.py`
-- **STS3215 reports model number 777** (returned from `ping()`)
-
-See `docs/debugging/servo-comms-debug-log.md` Phase 5 for the actual root cause and full chronology.
+**STS3215 reports model number 777** from `ping()` — a quick health check. See debug log Phase 5 for the full root-cause analysis.
 
 ---
 
@@ -435,32 +395,9 @@ On macOS, each USB serial device appears twice: `/dev/tty.*` and `/dev/cu.*`.
 - `cu` (call-up) initiates connections — correct for outbound serial communication
 - Always use `/dev/cu.usbmodem*` for this board on Mac.
 
-### Pi UART Configuration Commands
+### Pi UART Configuration Commands (retired)
 
-```bash
-# Append a line to /boot/firmware/config.txt (Pi's boot config, read at startup):
-echo "dtoverlay=disable-bt" | sudo tee -a /boot/firmware/config.txt
-# echo "..." — print the string to stdout
-# sudo tee -a <file> — tee reads stdin and writes to both stdout AND the file;
-#   -a means append (don't overwrite); sudo needed because /boot/firmware/ is root-owned.
-#   Piping to "sudo tee" is the correct pattern when you need root to write a file,
-#   since "sudo echo ... >> file" doesn't work (the >> redirect runs as the current user).
-
-echo "enable_uart=1" | sudo tee -a /boot/firmware/config.txt
-
-# Verify a specific setting in config.txt:
-grep "dwc2" /Volumes/system-boot/config.txt
-# grep — search for a pattern in a file; prints matching lines.
-# Use -n flag to show line numbers: grep -n "pattern" file
-
-# Check which UART devices exist:
-ls /dev/ttyAMA* /dev/ttyS*
-# /dev/ttyAMA0 = PL011 hardware UART (want this for servos)
-# /dev/ttyS0   = mini-UART (CPU-clock-dependent, unreliable at 1Mbps)
-
-# Check active kernel boot parameters (read-only, reflects what actually booted):
-cat /proc/cmdline
-```
+The Pi-era UART boot setup (`dtoverlay=disable-bt`, `enable_uart=1`, PL011 vs mini-UART, `cat /proc/cmdline`) is no longer used — the Jetson connects over USB. Commands and explanation are preserved in [`docs/debugging/servo-comms-debug-log.md`](debugging/servo-comms-debug-log.md). The one check that still matters on the Jetson: `cat /proc/cmdline` and `systemctl is-enabled serial-getty@<port>` to confirm nothing else owns the servo port.
 
 ### Jetson SSH Quick Reference
 
@@ -473,24 +410,13 @@ ssh-keygen -R eka-orin.local  # removes stale host key from ~/.ssh/known_hosts
 # Then retry ssh normally.
 ```
 
-### Pi SSH Quick Reference (retired — kept for reference)
-
-```bash
-ssh ekapi@eka-pi02w.local     # mDNS hostname (may be slow to resolve)
-ssh ekapi@[redacted]     # direct IP (faster, more reliable)
-
-# If SSH fails with "REMOTE HOST IDENTIFICATION HAS CHANGED" (happens after reflash):
-ssh-keygen -R eka-pi02w.local  # removes stale host key from ~/.ssh/known_hosts
-# Then retry ssh normally.
-```
-
 ### scservo_sdk Import Path
-`ping_one.py` and other scripts in `software/control/` use:
+The raw-SDK diagnostic scripts in `software/low-lvl-setup/` use:
 ```python
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 from scservo_sdk import PortHandler, sms_sts, COMM_SUCCESS
 ```
-This resolves to `software/scservo_sdk/`. Run scripts from hexarm root or from `software/control/`.
+This resolves to `software/scservo_sdk/`. These scripts run standalone (not under the LeRobot conda env), so the local SDK copy is intended here. **Do NOT** use this pattern from scripts that import LeRobot — adding `software/` to `sys.path` shadows the pip-installed `scservo_sdk` (see the teleop import-path gotcha below). Run from hexarm root or from `software/low-lvl-setup/`.
 
 ---
 
@@ -581,11 +507,7 @@ Keep the per-joint loop (prevents unsupported joints swinging under gravity). Ju
 2. **Does `drive_mode=1` fix it?** No. `drive_mode` is only a software sign-flip applied *after* normalization (`100 - norm if drive_mode`) so leader/follower agree on direction. It never touches the encoder, offset, or seam. It cannot reroute the joint onto the short path — the joint physically occupies the 215° arc.
 3. **Negative `range_min` in software only?** Not needed if you home correctly (you get 826–3269). But it IS valid in principle: `_normalize`/`_unnormalize` only read range_min/range_max and never require ≥0. Only `_serialize_data` rejects negatives, and only when writing the *unsigned* Min/Max_Position_Limit EPROM registers. (Homing_Offset itself is fine negative — sign-magnitude, bit 11.) So a true-negative range = keep range in JSON, skip the EPROM limit write.
 
-### Historical (superseded) framing of the failure
-
-**Discovered 2026-05-31.** Some joints have their physical travel range crossing the STS3215 encoder's 0↔4095 boundary.
-
-### Confirmed affected joints (leader arm, 2026-05-31)
+### Affected joints (leader arm, 2026-05-31)
 
 | Joint | ID | Stop A (raw) | Stop B (raw) | Wraps? | Notes |
 |---|---|---|---|---|---|
@@ -611,18 +533,7 @@ while True:
 "
 ```
 
-### Why `record_ranges_of_motion` fails for wrap-around joints
-
-`record_ranges_of_motion` uses simple `min()` / `max()` tracking. For a joint that traverses 1855→4095→0→202, it records min=0, max=4095 (full encoder range) — which is physically wrong.
-
-### Why `set_half_turn_homings` doesn't fix it
-
-`set_half_turn_homings` computes `homing_offset = 2047 - present_position` and writes it to the servo EPROM. For shoulder_lift with the center of wrap-path at raw ~3076:
-- homing_offset = 2047 - 3076 = -1029
-- Stop A (raw 1855): homed = 1855 + (-1029) = 826 ✓
-- Stop B (raw 202): homed = 202 + (-1029) = **-827** ✗
-
-`write_calibration` attempts to write range_min = -827 to the `Min_Position_Limit` EPROM register, which rejects negative values → `ValueError`.
+> **The detailed failure analysis of the *old* approach** — why `record_ranges_of_motion` (naive `min()`/`max()`) and `set_half_turn_homings` produced the `-827` negative-EPROM-write `ValueError` — is preserved in [`docs/handoffs/lerobot-calibration-wrap-around.md`](handoffs/lerobot-calibration-wrap-around.md). The corrected understanding (the seam moves with the homing offset; home-at-center parks it in the dead gap) is in "The key insight" above; that's what supersedes it.
 
 ### Current state of calibration files
 
@@ -636,7 +547,7 @@ The physics is solved; the code is not yet rewritten. `calibrate_lerobot.py` sti
 
 ### move_one.py — current state (2026-05-28)
 
-- Located at `software/setup/move_one.py`
+- Located at `software/low-lvl-setup/move_one.py`
 - Uses raw `scservo_sdk` directly (no `_serial_utils` wrapper)
 - Interactive ID collection via readchar; SPACE to finish (ESC dropped — SSH eats it)
 - On startup: pings each servo, reads current position, enables torque, moves to home position from `config/home.json`
@@ -663,4 +574,4 @@ The physics is solved; the code is not yet rewritten. `calibrate_lerobot.py` sti
 
 `go_neutral` was resetting `Maximum_Velocity_Limit` to 0 after completing but **not** resetting `Acceleration`. Leaving `Acceleration = 20` on the servos caused sluggish ramp-up in the teleop loop. Fixed: both registers are now reset to 0 on completion.
 
-*Last updated: 2026-06-03 (session 2)*
+*Last updated: 2026-06-03 (session 3 — documentation cleanup: single-bus topology, Pi history condensed to debug-log pointers, wrap-around superseded framing trimmed)*
