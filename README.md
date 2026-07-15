@@ -62,6 +62,7 @@ software/
 - [Project Context — full hardware/software handoff](docs/context.md)
 - [Servo Comms Bring-Up — UART/SDK debugging chronology](docs/debugging/servo-comms-debug-log.md)
 - [Encoder Wrap-Around — LeRobot calibration handoff](docs/handoffs/lerobot-calibration-wrap-around.md)
+- [Robot Dog — forward planning (hardware reuse, camera architecture)](docs/robotdogplan.md)
 
 **Planned** (to be written as the project's notes get consolidated):
 
@@ -117,8 +118,9 @@ python software/control/teleop.py --hz 50
 | All 12 servos responding on one bus | ✅ Done |
 | Per-joint calibration (both arms) | ✅ Working (clean re-cal pending) |
 | Leader-follower teleoperation (`teleop.py`) | ✅ Done (2026-06-03) |
-| Encoder wrap-around fix — code rewrite | ⏳ In progress |
+| Encoder wrap-around fix — code rewrite | ✅ Done (2026-06-02) |
 | Angle limits flashed to servo EPROM | ⏳ Todo |
+| Cameras (wrist + overhead, 2× Arducam OV9782 global shutter) | 📦 Ordered 2026-07-14, arriving ~07-22 |
 | Dataset recording | ⏳ Todo |
 | Policy training | ⏳ Todo |
 

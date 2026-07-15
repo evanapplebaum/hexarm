@@ -107,9 +107,10 @@ GitHub: `github.com/evanapplebaum/hexarm`
 ### Compute — Raspberry Pi Zero 2W (RETIRED 2026-05-26 — kept as a pointer)
 Replaced by the Jetson Orin Nano Super. The full Pi UART bring-up chronology — PL011 vs mini-UART, `disable-bt`, the serial-console/`getty` trap, and the straight-through Waveshare wiring — lives in [`docs/debugging/servo-comms-debug-log.md`](debugging/servo-comms-debug-log.md). **One lesson carries forward to the Jetson:** a kernel serial console or `serial-getty` sitting on the servo UART silently eats RX bytes and breaks comms — always confirm it's off on whatever port the servos use (tracked under Setup Status → "Jetson — serial console verified off").
 
-### Vision (planned)
-- Wrist-mounted camera and/or overhead workspace camera
-- Hardware TBD
+### Vision (ordered, not yet in hand)
+- Wrist-mounted camera and overhead workspace camera
+- **Ordered 2026-07-14:** 2× Arducam OV9782 1MP Global Shutter USB Camera Board (B0385), UVC, M12 manual-focus lens — via Amazon.ca, expected delivery 2026-07-20–22. Chosen partly for reuse as the front stereo pair on a future quadruped project. Full rationale and purchase details in [`docs/robotdogplan.md`](robotdogplan.md).
+- Next once they arrive: mount one on the follower gripper (close-focus rack), one overhead (mid-distance rack); wire into LeRobot's camera config alongside the existing `FeetechMotorsBus` for dataset recording.
 
 ---
 
@@ -152,7 +153,7 @@ hexarm/
 │   ├── control/                        ← application-level scripts (run from repo root, conda lerobot)
 │   │   └── teleop.py                   ← leader-follower teleoperation; single bus, 12 motors; ✅ working (2026-06-03)
 │   ├── calibration/                    ← LeRobot-based calibration and arm control scripts
-│   │   ├── calibrate_lerobot.py        ← per-joint LeRobot calibration (--arm leader|follower); needs rewrite (see Encoder Wrap-Around)
+│   │   ├── calibrate_lerobot.py        ← per-joint LeRobot calibration (--arm leader|follower); ✅ implements the fixed wrap-around flow (see Encoder Wrap-Around)
 │   │   ├── go_neutral.py               ← move arm(s) to captured neutral pose; importable by other scripts
 │   │   ├── record_neutral.py           ← capture current pose as neutral_<arm>.json
 │   │   ├── keyboard_follower.py        ← keyboard control of follower arm (normalize=False); ✅ works
@@ -169,9 +170,7 @@ hexarm/
 │   │   ├── move_one.py                 ← ping, ReadPos, torque enable, move to home.json position
 │   │   ├── torque_off.py               ← interactive torque disable
 │   │   ├── flash_angle_limits.py       ← write limits.json angle limits to servo EPROM
-│   │   ├── read_register.py            ← read arbitrary EPROM/SRAM register (raw pyserial)
-│   │   ├── config.py                   ← motor IDs, port assignments (needs rewrite — Pi 5 refs)
-│   │   └── teleop.py                   ← DEPRECATED stub — ignore, superseded by software/control/teleop.py
+│   │   └── read_register.py            ← read arbitrary EPROM/SRAM register (raw pyserial)
 │   ├── scservo_sdk/                    ← Feetech official SDK (NOT a pip package — local copy)
 │   │   ├── protocol_packet_handler.py  ← packet framing/parsing — UNMODIFIED, keep upstream
 │   │   ├── sms_sts.py                  ← STS/SMS series class (correct for STS3215)
@@ -366,14 +365,15 @@ End-to-end SDK path has worked since 2026-05-25 (on the Pi) and now runs on the 
 | Bus communication test (all 12 servos) | ✅ Done (2026-06-03, both arms responding, teleop confirmed) |
 | SDK path (ping_one, calibrate) working on Jetson | ✅ Done (2026-05-26, sdk_diag 5/5, ping_one confirmed) |
 | Angle limits flashed to servo EPROM | ⏳ Todo |
+| Cameras — 2× Arducam OV9782 (B0385) global shutter USB, wrist + overhead | 📦 Ordered 2026-07-14 (Amazon.ca), arriving ~2026-07-22. See Vision section + `docs/robotdogplan.md`. |
 | **Application** | |
 | config.py rewrite (Jetson ports, remove Pi 5 / Pi Zero 2W refs) | ⏳ Todo |
 | move_one.py — ping, ReadPos, torque enable, home move | ✅ Done (2026-05-28) |
 | torque_off.py — interactive torque disable | ✅ Done (2026-05-28) |
 | flash_angle_limits.py — write limits.json to servo EPROM | ✅ Done (2026-05-28) |
 | keyboard_follower.py — LeRobot keyboard control of follower arm | ✅ Done (2026-05-31) |
-| calibrate_lerobot.py — per-joint LeRobot calibration, both arms | ⚠️ Calibration data working in practice; script needs rewrite (hand-rolls offset math, never calls configure_motors()). Fix designed 2026-06-01 (see Encoder Wrap-Around section) |
-| LeRobot calibration — encoder wrap-around fix | ✅ Solved conceptually (2026-06-01); ⏳ code rewrite pending |
+| calibrate_lerobot.py — per-joint LeRobot calibration, both arms | ✅ Done — rewritten around configure_motors()/set_half_turn_homings()/record_ranges_of_motion() (2026-06-02). Clean re-cal with current arms still recommended before dataset recording. |
+| LeRobot calibration — encoder wrap-around fix | ✅ Done (solved 2026-06-01, code rewritten 2026-06-02) |
 | go_neutral.py — move arm(s) to neutral; importable | ✅ Done — both arms working (2026-06-03) |
 | record_neutral.py — capture normalized neutral pose | ✅ Done — neutral_follower.json and neutral_leader.json captured |
 | teleop.py — leader-follower teleoperation | ✅ Done (2026-06-03, software/control/teleop.py) |
@@ -476,7 +476,7 @@ This is the opposite of standard UART convention. The board labels its UART pins
 
 ## Encoder Wrap-Around — RESOLVED ✅
 
-**Discovered 2026-05-31. Root cause understood and solution designed 2026-06-01.** Some joints have their physical travel range crossing the STS3215 encoder's 0↔4095 boundary. The absolute magnetic encoder is 12-bit (0–4095 per revolution). If the servo is mounted such that the physical joint stops straddle this boundary, raw encoder readings jump from 4095→0 mid-motion.
+**Discovered 2026-05-31. Root cause understood 2026-06-01; `calibrate_lerobot.py` rewritten around the fixed flow 2026-06-01/02 (commits `e63aaaa`…`493fbb7`).** Some joints have their physical travel range crossing the STS3215 encoder's 0↔4095 boundary. The absolute magnetic encoder is 12-bit (0–4095 per revolution). If the servo is mounted such that the physical joint stops straddle this boundary, raw encoder readings jump from 4095→0 mid-motion.
 
 ### The key insight (2026-06-01)
 
@@ -491,7 +491,7 @@ Worked example — shoulder_lift (ID 8), stops raw 1855 and 202:
 
 The `−827` from the original failure only appeared because the OLD script computed `raw + offset` in plain Python **without the mod 4096** that the servo actually applies. The negative write was a symptom, not the disease.
 
-### The correct calibration flow (per joint)
+### The correct calibration flow (per joint) — IMPLEMENTED in `calibrate_lerobot.py`
 
 1. `bus.configure_motors()` once up front — clears the Phase bit so present-position reporting is single-turn mod-4096. **The old script never called this** — that was a real latent bug.
 2. Hand-move the joint to the **middle** of its travel.
@@ -500,6 +500,8 @@ The `−827` from the original failure only appeared because the OLD script comp
 5. `bus.write_calibration(...)`.
 
 Keep the per-joint loop (prevents unsupported joints swinging under gravity). Just split each joint into "move to middle → Enter" then "sweep both stops → Enter."
+
+`software/calibration/calibrate_lerobot.py` implements this flow exactly (steps 1–5, per-joint loop included) as of commit `493fbb7` (2026-06-02). It is the live, current calibration script — not a stub, not deprecated.
 
 ### Answers to the three handoff questions
 
@@ -541,7 +543,7 @@ Both `calibration_follower.json` and `calibration_leader.json` were generated wi
 
 ### Remaining implementation work
 
-The physics is solved; the code is not yet rewritten. `calibrate_lerobot.py` still hand-rolls offset math (`raw + offset` without mod 4096) and never calls `configure_motors()`. Next step: rewrite it around the library primitives in the order listed above. Per the coding-triage rule, the homing/seam logic is **model-bearing → Evan writes it first, predict-first**; the argparse/JSON/loop scaffolding is glue → Claude can write it.
+None — both the physics and the code are done. `calibrate_lerobot.py` was rewritten around the library primitives (see above) on 2026-06-01/02. A clean re-calibration pass with the fixed script is still recommended before dataset recording (current `calibration_*.json` files predate the rewrite), but no further code changes are needed here.
 
 ---
 
@@ -574,4 +576,4 @@ The physics is solved; the code is not yet rewritten. `calibrate_lerobot.py` sti
 
 `go_neutral` was resetting `Maximum_Velocity_Limit` to 0 after completing but **not** resetting `Acceleration`. Leaving `Acceleration = 20` on the servos caused sluggish ramp-up in the teleop loop. Fixed: both registers are now reset to 0 on completion.
 
-*Last updated: 2026-06-03 (session 3 — documentation cleanup: single-bus topology, Pi history condensed to debug-log pointers, wrap-around superseded framing trimmed)*
+*Last updated: 2026-07-14 (session 4 — software audit after 2-month break: corrected stale "calibrate_lerobot.py needs rewrite" claims (rewrite already shipped 2026-06-02), removed dead `low-lvl-setup/config.py` (Pi 5 ports, backwards leader/follower ID convention, zero references) and the already-deleted `low-lvl-setup/teleop.py` doc entry; scoped camera purchase for both hexarm and a future quadruped reuse — see `docs/robotdogplan.md` — and ordered 2× Arducam OV9782 B0385 global shutter USB cameras)*
