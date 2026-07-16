@@ -60,8 +60,8 @@ software/
 
 - [Kinematics — DH Parameters & Forward/Inverse Kinematics](docs/kinematics.md)
 - [Project Context — full hardware/software handoff](docs/context.md)
-- [Servo Comms Bring-Up — UART/SDK debugging chronology](docs/debugging/servo-comms-debug-log.md)
-- [Encoder Wrap-Around — LeRobot calibration handoff](docs/handoffs/lerobot-calibration-wrap-around.md)
+- [Postmortems — consolidated incident log (symptom → root cause → fix → lesson)](docs/debugging/postmortems.md)
+- [Servo Comms Bring-Up — full UART/SDK debugging chronology](docs/debugging/servo-comms-debug-log.md)
 - [Robot Dog — forward planning (hardware reuse, camera architecture)](docs/robotdogplan.md)
 
 **Planned** (to be written as the project's notes get consolidated):
@@ -80,6 +80,26 @@ software/
 - 1× Waveshare Bus Servo Adapter (A) — set to USB-Servo mode
 - 12× FEETECH STS3215 servos (both arms daisy-chained on one bus)
 - 12 V DC supply for the servo bus (via the board's barrel jack)
+
+### Physical Hookup / Power
+
+There are **two separate power adapters** — both plug into standard AC wall sockets, but they are **not interchangeable**:
+
+| Adapter | Output | Powers | Connector |
+|---|---|---|---|
+| Jetson power supply | 19V, 2.37A max | Jetson Orin Nano Super | Jetson's barrel jack |
+| Servo bus power supply | 12V, 5A max | Servo bus (both arms) | Waveshare board's barrel jack |
+
+> **⚠️ Do not cross these.** Plugging the Jetson's 19V adapter into the Waveshare board's barrel jack will fry it (it's only rated for 12V). Double-check which brick you're holding before plugging in.
+
+Full connection sequence:
+
+1. Daisy-chain both arms' servo JST connectors into the **one** Waveshare Bus Servo Adapter (A) that's in use (the second board on hand is a spare — not wired in for the current single-bus setup).
+2. Confirm the board's physical mode switch is set to **USB-Servo**.
+3. Plug the 12V/5A adapter into the Waveshare board's barrel jack (servo bus power).
+4. Plug the 19V/2.37A adapter into the Jetson's barrel jack (compute power).
+5. Connect the Waveshare board to the Jetson via USB — it enumerates as `/dev/ttyACM0`.
+6. Power on the Jetson and SSH in (`ssh evan0h@eka-orin.local`).
 
 ### Software Setup (Jetson)
 
