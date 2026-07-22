@@ -38,12 +38,17 @@ def main():
     parser = argparse.ArgumentParser(description="Disable torque on one or more STS3215 servos.")
     parser.add_argument("--port", default=DEFAULT_PORT, help="Serial port (default: /dev/ttyACM0)")
     parser.add_argument("--baud", default=DEFAULT_BAUD, type=int, help="Baud rate (default: 1000000)")
+    parser.add_argument("--all", action="store_true",
+                        help="Disable torque on all 12 servos (IDs 1-12) without prompting")
     args = parser.parse_args()
 
-    id_list = collect_ids()
-    if not id_list:
-        print("No IDs entered. Exiting.")
-        return
+    if args.all:
+        id_list = list(range(1, 13))
+    else:
+        id_list = collect_ids()
+        if not id_list:
+            print("No IDs entered. Exiting.")
+            return
     print(f"\nDisabling torque on IDs: {id_list}")
 
     port_handler = PortHandler(args.port)

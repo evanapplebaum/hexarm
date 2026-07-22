@@ -12,16 +12,24 @@ Can be used standalone or imported by other scripts (e.g. teleop.py):
     conda activate lerobot
     python software/calibration/go_neutral.py --arm follower
     python software/calibration/go_neutral.py --arm leader --velocity 200 --acceleration 30
+    python software/calibration/go_neutral.py --arm both
 
   Imported:
     from software.calibration.go_neutral import go_neutral
     go_neutral(bus, neutral, velocity=100, acceleration=20)
 
 Arguments (standalone):
-  --arm           follower | leader  (required)
+  --arm           follower | leader | both  (required)
   --velocity      max joint speed in counts/s (default: 100 ≈ 8.8°/s)
   --acceleration  ramp rate in counts/s² (default: 20)
   --port          serial port (default: /dev/ttyACM0)
+
+--arm both moves both arms simultaneously on one bus (one sync_write for all
+12 joints), the same prefixed-motor-name approach teleop.py uses.
+
+Torque is left ENABLED on exit (standalone mode only — the importable
+go_neutral() function never touches torque either way). Run torque_off.py
+separately if you want it disabled afterward.
 """
 
 import argparse
@@ -54,10 +62,10 @@ def load_json(path: Path) -> dict:
         return json.load(f)
 
 
-def build_motors(arm: str, names: list[str]) -> dict[str, Motor]:
+def build_motors(arm: str, names: list[str], prefix: str = "") -> dict[str, Motor]:
     id_offset = ARM_ID_OFFSET[arm]
     return {
-        name: Motor(
+        f"{prefix}{name}": Motor(
             id=JOINT_NAMES.index(name) + 1 + id_offset,
             model="sts3215",
             norm_mode=MotorNormMode.RANGE_0_100,
@@ -133,7 +141,7 @@ def go_neutral(
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="Move arm to neutral pose")
-    parser.add_argument("--arm",          required=True, choices=["leader", "follower"])
+    parser.add_argument("--arm",          required=True, choices=["leader", "follower", "both"])
     parser.add_argument("--velocity",     type=int, default=DEFAULT_VELOCITY,
                         help=f"Max speed in counts/s (default: {DEFAULT_VELOCITY} ≈ 8.8°/s)")
     parser.add_argument("--acceleration", type=int, default=DEFAULT_ACCELERATION,
@@ -141,27 +149,44 @@ def main() -> None:
     parser.add_argument("--port",         default=DEFAULT_PORT)
     args = parser.parse_args()
 
-    cal_data     = load_json(CONFIG_DIR / f"calibration_{args.arm}.json")
-    neutral_data = load_json(CONFIG_DIR / f"neutral_{args.arm}.json")
+    arm_list = ["follower", "leader"] if args.arm == "both" else [args.arm]
 
-    active_joints = [n for n in JOINT_NAMES if n in cal_data and n in neutral_data]
-    skipped = [n for n in JOINT_NAMES if n not in active_joints]
-    if skipped:
-        print(f"Skipping joints with missing calibration or neutral: {skipped}")
-    if not active_joints:
+    motors: dict[str, Motor] = {}
+    calibration: dict[str, MotorCalibration] = {}
+    neutral: dict[str, float] = {}
+
+    for arm in arm_list:
+        cal_data     = load_json(CONFIG_DIR / f"calibration_{arm}.json")
+        neutral_data = load_json(CONFIG_DIR / f"neutral_{arm}.json")
+
+        active_joints = [n for n in JOINT_NAMES if n in cal_data and n in neutral_data]
+        skipped = [n for n in JOINT_NAMES if n not in active_joints]
+        if skipped:
+            print(f"Skipping {arm} joints with missing calibration or neutral: {skipped}")
+
+        # Prefix motor names when running both arms on one bus, so the
+        # identically-named joints (e.g. "shoulder_pan") don't collide —
+        # same convention teleop.py uses.
+        prefix = f"{arm}_" if args.arm == "both" else ""
+        calibration.update({f"{prefix}{n}": MotorCalibration(**cal_data[n]) for n in active_joints})
+        neutral.update({f"{prefix}{n}": float(neutral_data[n]) for n in active_joints})
+        motors.update(build_motors(arm, active_joints, prefix=prefix))
+
+    if not neutral:
         raise RuntimeError("No joints to move — run calibrate_lerobot.py and record_neutral.py first.")
-
-    calibration = {name: MotorCalibration(**cal_data[name]) for name in active_joints}
-    neutral     = {name: float(neutral_data[name]) for name in active_joints}
-    motors      = build_motors(args.arm, active_joints)
 
     bus = FeetechMotorsBus(port=args.port, motors=motors, calibration=calibration)
     bus.connect()
-    print(f"Connected to {args.port}")
+    print(f"Connected to {args.port}  ({len(motors)} motor(s))")
 
     safe_enable_torque(bus)
     go_neutral(bus, neutral, velocity=args.velocity, acceleration=args.acceleration)
-    bus.disconnect()
+
+    # disable_torque=False: leave torque enabled on exit. FeetechMotorsBus's
+    # default disconnect() disables torque, which was silently undoing the
+    # whole point of moving to neutral. Run torque_off.py separately instead.
+    bus.disconnect(disable_torque=False)
+    print("Torque left enabled — run torque_off.py if you want it disabled.")
 
 
 if __name__ == "__main__":

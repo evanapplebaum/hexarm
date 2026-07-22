@@ -23,15 +23,21 @@ Usage (from hexarm root, conda lerobot env):
   conda activate lerobot
   python software/calibration/calibrate_lerobot.py --arm follower
   python software/calibration/calibrate_lerobot.py --arm leader --joints 4
+  python software/calibration/calibrate_lerobot.py --arm leader --specific 6
 
 Arguments:
-  --arm      follower | leader  (required)
-  --joints   number of joints to calibrate, starting from joint 1 (default: 6)
-  --port     serial port (default: /dev/ttyACM0)
+  --arm       follower | leader  (required)
+  --joints    number of joints to calibrate, starting from joint 1 (default: 6)
+  --specific  calibrate only this one joint number (1-6); all other joints'
+              EPROM data and JSON entries are left untouched. Cannot be
+              combined with --joints.
+  --port      serial port (default: /dev/ttyACM0)
 
 Output:
   software/config/calibration_follower.json
   software/config/calibration_leader.json
+  (in --specific mode, only that joint's entry is updated; the rest of the
+  file is preserved as-is)
 """
 
 import argparse
@@ -72,6 +78,18 @@ def build_motors(arm: str, n_joints: int) -> dict[str, Motor]:
     }
 
 
+def build_single_motor(arm: str, joint_num: int) -> dict[str, Motor]:
+    """Return just the one motor for --specific mode."""
+    name = JOINT_NAMES[joint_num - 1]
+    return {
+        name: Motor(
+            id=joint_num + ARM_ID_OFFSET[arm],
+            model="sts3215",
+            norm_mode=MotorNormMode.RANGE_0_100,
+        )
+    }
+
+
 def safe_enable_torque(bus: FeetechMotorsBus) -> None:
     """Set Goal_Position = Present_Position before enabling torque.
     Prevents snapping to a stale goal from a previous run."""
@@ -84,19 +102,33 @@ def safe_enable_torque(bus: FeetechMotorsBus) -> None:
 
 def main() -> None:
     parser = argparse.ArgumentParser(description="LeRobot calibration for leader or follower arm")
-    parser.add_argument("--arm",    required=True, choices=["leader", "follower"])
-    parser.add_argument("--joints", type=int, default=6,
+    parser.add_argument("--arm",      required=True, choices=["leader", "follower"])
+    parser.add_argument("--joints",   type=int, default=6,
                         help="Number of joints to calibrate (default: 6)")
-    parser.add_argument("--port",   default=DEFAULT_PORT)
+    parser.add_argument("--specific", type=int, default=None, metavar="N",
+                        help="Calibrate only joint N (1-6); all other joints "
+                             "are left untouched")
+    parser.add_argument("--port",     default=DEFAULT_PORT)
     args = parser.parse_args()
 
-    if not 1 <= args.joints <= 6:
-        parser.error("--joints must be between 1 and 6")
+    if args.specific is not None:
+        if not 1 <= args.specific <= 6:
+            parser.error("--specific must be between 1 and 6")
+        if args.joints != 6:
+            parser.error("--joints cannot be combined with --specific")
+        motors = build_single_motor(args.arm, args.specific)
+    else:
+        if not 1 <= args.joints <= 6:
+            parser.error("--joints must be between 1 and 6")
+        motors = build_motors(args.arm, args.joints)
 
-    motors   = build_motors(args.arm, args.joints)
     out_path = CONFIG_DIR / f"calibration_{args.arm}.json"
 
-    print(f"Calibrating {args.arm} arm — {args.joints} joint(s)")
+    if args.specific is not None:
+        print(f"Calibrating {args.arm} arm — joint {args.specific} only "
+              f"({next(iter(motors))})")
+    else:
+        print(f"Calibrating {args.arm} arm — {args.joints} joint(s)")
     print(f"Motor IDs: { {n: m.id for n, m in motors.items()} }\n")
 
     bus = FeetechMotorsBus(port=args.port, motors=motors)
@@ -172,10 +204,16 @@ def main() -> None:
     print("  Done.")
 
     # ── Step 5: Save JSON backup ───────────────────────────────────────────
+    # Merge into any existing file so --specific only touches its one entry
+    # instead of wiping out the calibration already recorded for the rest.
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
-    backup = {name: dataclasses.asdict(cal) for name, cal in calibration.items()}
+    existing: dict = {}
+    if out_path.exists():
+        with open(out_path) as f:
+            existing = json.load(f)
+    existing.update({name: dataclasses.asdict(cal) for name, cal in calibration.items()})
     with open(out_path, "w") as f:
-        json.dump(backup, f, indent=2)
+        json.dump(existing, f, indent=2)
     print(f"  JSON backup saved to {out_path}")
 
     safe_enable_torque(bus)
