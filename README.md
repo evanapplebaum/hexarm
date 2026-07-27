@@ -2,7 +2,7 @@
 
 A custom 6-DOF leader-follower robotic arm system based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation — with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework as the end goal.
 
-> **Status:** 🔧 In active development — leader-follower **teleoperation working end-to-end** (2026-06-03). Both arms run on a single servo bus at 50 Hz. Calibration refinement and dataset recording are next.
+> **Status:** 🔧 In active development — leader-follower **teleoperation working end-to-end** (2026-06-03), calibration and angle limits finalized (2026-07-27). Both arms run on a single servo bus at 50 Hz. Camera integration and dataset recording are next.
 
 ---
 
@@ -58,6 +58,7 @@ software/
 
 ## Documentation
 
+- [Session Guide — personal setup checklist + where-we-left-off log](docs/session.md)
 - [Kinematics — DH Parameters & Forward/Inverse Kinematics](docs/kinematics.md)
 - [Project Context — full hardware/software handoff](docs/context.md)
 - [Postmortems — consolidated incident log (symptom → root cause → fix → lesson)](docs/debugging/postmortems.md)
@@ -136,10 +137,10 @@ python software/control/teleop.py --hz 50
 | LeRobot installed on Jetson (`pip install -e ".[feetech]"`) | ✅ Done |
 | Servo IDs assigned — follower 1–6, leader 7–12, single bus | ✅ Done |
 | All 12 servos responding on one bus | ✅ Done |
-| Per-joint calibration (both arms) | ✅ Working (clean re-cal pending) |
+| Per-joint calibration (both arms) | ✅ Done — clean re-calibration complete (2026-07-27) |
 | Leader-follower teleoperation (`teleop.py`) | ✅ Done (2026-06-03) |
 | Encoder wrap-around fix — code rewrite | ✅ Done (2026-06-02) |
-| Angle limits flashed to servo EPROM | ⏳ Todo |
+| Angle limits flashed to servo EPROM | ✅ Done (2026-07-27) |
 | Cameras (wrist + overhead, 2× Arducam OV9782 global shutter) | 📦 Ordered 2026-07-14, arriving ~07-22 |
 | Dataset recording | ⏳ Todo |
 | Policy training | ⏳ Todo |

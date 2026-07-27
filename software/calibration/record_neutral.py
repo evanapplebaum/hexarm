@@ -8,8 +8,8 @@ calibration file exists for the arm, run calibrate_lerobot.py first.
 
 Usage (from hexarm root, conda lerobot env):
   conda activate lerobot
-  python software/control/record_neutral.py --arm follower
-  python software/control/record_neutral.py --arm leader
+  python software/calibration/record_neutral.py --arm follower
+  python software/calibration/record_neutral.py --arm leader
 
 Arguments:
   --arm    follower | leader  (required)

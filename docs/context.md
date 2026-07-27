@@ -364,7 +364,7 @@ End-to-end SDK path has worked since 2026-05-25 (on the Pi) and now runs on the 
 | Servo IDs assigned — follower 1–6, leader 7–12, single bus | ✅ Done — both arms on /dev/ttyACM0; see LeRobot section for ID convention |
 | Bus communication test (all 12 servos) | ✅ Done (2026-06-03, both arms responding, teleop confirmed) |
 | SDK path (ping_one, calibrate) working on Jetson | ✅ Done (2026-05-26, sdk_diag 5/5, ping_one confirmed) |
-| Angle limits flashed to servo EPROM | ⏳ Todo |
+| Angle limits flashed to servo EPROM | ✅ Done (2026-07-27) |
 | Cameras — 2× Arducam OV9782 (B0385) global shutter USB, wrist + overhead | 📦 Ordered 2026-07-14 (Amazon.ca), arriving ~2026-07-22. See Vision section + `docs/robotdogplan.md`. |
 | **Application** | |
 | config.py rewrite (Jetson ports, remove Pi 5 / Pi Zero 2W refs) | ⏳ Todo |
@@ -372,7 +372,7 @@ End-to-end SDK path has worked since 2026-05-25 (on the Pi) and now runs on the 
 | torque_off.py — interactive torque disable | ✅ Done (2026-05-28) |
 | flash_angle_limits.py — write limits.json to servo EPROM | ✅ Done (2026-05-28) |
 | keyboard_follower.py — LeRobot keyboard control of follower arm | ✅ Done (2026-05-31) |
-| calibrate_lerobot.py — per-joint LeRobot calibration, both arms | ✅ Done — rewritten around configure_motors()/set_half_turn_homings()/record_ranges_of_motion() (2026-06-02). Clean re-cal with current arms still recommended before dataset recording. |
+| calibrate_lerobot.py — per-joint LeRobot calibration, both arms | ✅ Done — rewritten around configure_motors()/set_half_turn_homings()/record_ranges_of_motion() (2026-06-02). Clean re-calibration with current arms completed 2026-07-27. |
 | LeRobot calibration — encoder wrap-around fix | ✅ Done (solved 2026-06-01, code rewritten 2026-06-02) |
 | go_neutral.py — move arm(s) to neutral; importable | ✅ Done — both arms working (2026-06-03) |
 | record_neutral.py — capture normalized neutral pose | ✅ Done — neutral_follower.json and neutral_leader.json captured |
@@ -460,6 +460,7 @@ This resolves to `software/scservo_sdk/`. These scripts run standalone (not unde
 - Python sys.path shadowing — adding a directory to sys.path exposes ALL its subdirectories as importable packages; adding `software/` shadows the pip-installed `scservo_sdk` with the local copy, breaking LeRobot. Always add the repo root, not a mid-tree directory.
 - LeRobot teleop loop design — single FeetechMotorsBus for both arms on one port; prefix motor names (follower_/leader_) to avoid collisions; 1:1 normalized mapping works when arms are physically identical with drive_mode=0
 - STS3215 Acceleration register — value 0 means no limit (like Maximum_Velocity_Limit); go_neutral must reset both to 0 on exit or downstream scripts inherit slow ramp rates
+- Modular vs. monolithic CAD design — building a part as a union of smaller, independently swappable sub-parts (vs. one single-body design) costs more upfront modeling effort but pays back heavily on iteration speed: a monolithic part requires a full redesign (or full reprint) for a single failed feature, while a modular one lets you reprint/redesign just the sub-part that failed and reuse the rest. Currently being felt directly on the claw redesign (see `docs/debugging/postmortems.md` #5) — still calibrating exactly how much time this saves in practice, not yet a settled rule.
 
 ---
 
@@ -539,11 +540,11 @@ while True:
 
 ### Current state of calibration files
 
-Both `calibration_follower.json` and `calibration_leader.json` were generated with the old script, but in practice the calibration data is good enough for teleoperation — both arms are tracking correctly. A clean re-calibration using the fixed flow is still recommended before dataset recording to ensure precise normalization.
+`calibration_follower.json` and `calibration_leader.json` were regenerated with the fixed flow in a clean re-calibration pass on 2026-07-27 — both arms tracking correctly, precise normalization confirmed.
 
 ### Remaining implementation work
 
-None — both the physics and the code are done. `calibrate_lerobot.py` was rewritten around the library primitives (see above) on 2026-06-01/02. A clean re-calibration pass with the fixed script is still recommended before dataset recording (current `calibration_*.json` files predate the rewrite), but no further code changes are needed here.
+None — both the physics and the code are done. `calibrate_lerobot.py` was rewritten around the library primitives (see above) on 2026-06-01/02, and the clean re-calibration pass with the fixed script (previously outstanding) was completed 2026-07-27.
 
 ---
 
@@ -576,4 +577,6 @@ None — both the physics and the code are done. `calibrate_lerobot.py` was rewr
 
 `go_neutral` was resetting `Maximum_Velocity_Limit` to 0 after completing but **not** resetting `Acceleration`. Leaving `Acceleration = 20` on the servos caused sluggish ramp-up in the teleop loop. Fixed: both registers are now reset to 0 on completion.
 
-*Last updated: 2026-07-14 (session 4 — software audit after 2-month break: corrected stale "calibrate_lerobot.py needs rewrite" claims (rewrite already shipped 2026-06-02), removed dead `low-lvl-setup/config.py` (Pi 5 ports, backwards leader/follower ID convention, zero references) and the already-deleted `low-lvl-setup/teleop.py` doc entry; scoped camera purchase for both hexarm and a future quadruped reuse — see `docs/robotdogplan.md` — and ordered 2× Arducam OV9782 B0385 global shutter USB cameras)*
+*Last updated: 2026-07-27 (session 5 — clean re-calibration of both arms completed with the fixed flow, and angle limits flashed to servo EPROM; started redesigning the claw — old one too small, dropping objects, see `docs/debugging/postmortems.md` #5; added `docs/session.md` as a personal fast-path setup/continuity doc, separate from this AI-handoff file)*
+
+*Previously: 2026-07-14 (session 4 — software audit after 2-month break: corrected stale "calibrate_lerobot.py needs rewrite" claims (rewrite already shipped 2026-06-02), removed dead `low-lvl-setup/config.py` (Pi 5 ports, backwards leader/follower ID convention, zero references) and the already-deleted `low-lvl-setup/teleop.py` doc entry; scoped camera purchase for both hexarm and a future quadruped reuse — see `docs/robotdogplan.md` — and ordered 2× Arducam OV9782 B0385 global shutter USB cameras)*

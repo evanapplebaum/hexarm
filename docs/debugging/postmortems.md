@@ -80,4 +80,25 @@ Consolidated log of hardware/software incidents encountered while building hexar
 
 ---
 
+## 5. Claw Too Small — Dropping Grasped Objects
+
+**Dates:** started 2026-07-27 · **Severity:** In progress · **Status:** 🚧 Open
+
+**Symptom:** The follower claw's jaw opening/contact geometry is undersized for the objects being grasped during teleop — grip doesn't fully secure the object, and it slips or drops mid-manipulation.
+
+**Investigation so far:** Evan is designing a new claw from scratch rather than patching the current one. Related to (but a separate symptom from) postmortem #4 — both point at the same gripper assembly needing a redesign, #4 on the leader side (hand-actuation force breaking PLA) and this one on the grasping side (jaw too small to hold objects reliably).
+
+**Root cause:** TBD — likely the original claw geometry was sized against the SO-100 reference design/early test objects rather than the actual range of objects intended for this project's dataset.
+
+**Fix:** TBD — new claw in progress.
+
+**Lesson (in progress, not yet settled):** Evan is deliberately building the new claw as a **union of smaller, modular sub-parts** rather than one monolithic printed body, specifically to test whether this is actually faster to iterate on — a failed sub-part gets reprinted/redesigned alone instead of forcing a full-part redo. Still calibrating how much time this saves in practice; see the "Modular vs. monolithic CAD design" entry in `context.md`'s Concepts Covered log once there's a real before/after comparison to write down.
+
+**TODO:**
+- [ ] Nail down the target object set (size/weight range) the claw needs to reliably hold, so the new design is sized against real requirements instead of guesswork
+- [ ] Decide how the modular sub-parts union together (fasteners? printed snap-fit? glued?) and whether that joint becomes its own weak point
+- [ ] Once printed, cross-check against postmortem #4 — a wider/reshaped jaw may also change the hand-actuation force problem (for better or worse)
+
+---
+
 *Have a new issue in progress? Add a new `## N. Title` section above using the same template — even a partially-solved entry (Symptom + Investigation so far) is useful; fill in Root Cause / Fix / Lesson once resolved.*
