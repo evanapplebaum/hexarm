@@ -6,13 +6,22 @@ Leader arm runs torque-free (move it by hand). Follower tracks the leader
 in real time at a fixed rate using calibrated normalized positions (0–100).
 
 Startup sequence (handled automatically):
-  1. Both arms torque-enabled and moved to their captured neutral poses.
-  2. Leader torque disabled — move it freely.
-  3. Teleop loop starts — follower tracks leader from neutral.
+  1. Both arms torque-enabled and moved to the shared neutral pose (the same
+     normalized values on both arms — see record_neutral.py/go_neutral.py
+     for why this matters: two independently-captured per-arm neutrals are
+     never bit-identical, which used to make the follower snap the instant
+     leader torque dropped in step 3).
+  2. Recorded startup sequence played back on both arms simultaneously,
+     then both arms carefully return to neutral (see run_startup_sequence.py
+     and set_startup_sequence.py).
+  3. Leader torque disabled — move it freely.
+  4. Teleop loop starts — follower tracks leader from neutral.
 
 Prerequisites:
-  - Both arms calibrated  (software/config/calibration_*.json)
-  - Neutral poses captured (software/config/neutral_*.json)
+  - Both arms calibrated       (software/config/calibration_*.json)
+  - Neutral pose captured      (software/config/neutral.json)
+  - Startup sequence recorded  (software/config/startup_sequence.json,
+    via set_startup_sequence.py)
 
 Usage (from hexarm root, conda lerobot env):
   conda activate lerobot
@@ -30,7 +39,7 @@ from pathlib import Path
 # Add repo root (hexarm/) to path — NOT software/, which would shadow the
 # pip-installed scservo_sdk with our local copy and break LeRobot imports.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
-from software.calibration.go_neutral import go_neutral  # noqa: E402
+from software.calibration.run_startup_sequence import run_startup_sequence  # noqa: E402
 
 from lerobot.motors.feetech import FeetechMotorsBus
 from lerobot.motors.motors_bus import Motor, MotorCalibration, MotorNormMode
@@ -146,10 +155,10 @@ def main() -> None:
                         help=f"Control loop rate in Hz (default: {DEFAULT_HZ})")
     args = parser.parse_args()
 
-    cal_follower     = load_json(CONFIG_DIR / "calibration_follower.json")
-    cal_leader       = load_json(CONFIG_DIR / "calibration_leader.json")
-    neutral_follower = load_json(CONFIG_DIR / "neutral_follower.json")
-    neutral_leader   = load_json(CONFIG_DIR / "neutral_leader.json")
+    cal_follower = load_json(CONFIG_DIR / "calibration_follower.json")
+    cal_leader   = load_json(CONFIG_DIR / "calibration_leader.json")
+    neutral      = load_json(CONFIG_DIR / "neutral.json")
+    sequence     = load_json(CONFIG_DIR / "startup_sequence.json")
 
     bus = build_bus(args.port, cal_follower, cal_leader)
     bus.connect()
@@ -159,11 +168,11 @@ def main() -> None:
     safe_enable_torque(bus, FOLLOWER_NAMES + LEADER_NAMES)
     print("Both arms torque: ON")
 
-    # Move both arms to their captured neutral poses
-    neutral_all = {f"follower_{k}": v for k, v in neutral_follower.items()}
-    neutral_all.update({f"leader_{k}": v for k, v in neutral_leader.items()})
-    print("Moving both arms to neutral...")
-    go_neutral(bus, neutral_all)
+    # Neutral -> startup sequence -> neutral, on both arms, with identical
+    # normalized targets on both — see module docstring.
+    neutral_all = {f"follower_{k}": v for k, v in neutral.items()}
+    neutral_all.update({f"leader_{k}": v for k, v in neutral.items()})
+    run_startup_sequence(bus, neutral_all, sequence)
 
     # Drop leader torque — operator moves it freely from here
     bus.disable_torque(motors=LEADER_NAMES)

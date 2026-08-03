@@ -1,6 +1,13 @@
 #!/usr/bin/env python3
 """
-go_neutral.py — Move arm slowly to the captured neutral pose.
+go_neutral.py — Move both arms to the shared neutral pose.
+
+Loads the single normalized neutral pose captured by record_neutral.py
+(software/config/neutral.json) and drives BOTH arms to those exact same
+normalized values, simultaneously, in one sync_write. Using one shared pose
+instead of two separately-captured per-arm poses is what keeps the leader
+and follower physically aligned at teleop startup — see record_neutral.py's
+docstring for why that matters.
 
 Sets Maximum_Velocity_Limit and Acceleration on each joint, commands
 Goal_Position for all joints simultaneously, then polls Present_Position
@@ -10,21 +17,19 @@ Can be used standalone or imported by other scripts (e.g. teleop.py):
 
   Standalone:
     conda activate lerobot
-    python software/calibration/go_neutral.py --arm follower
-    python software/calibration/go_neutral.py --arm leader --velocity 200 --acceleration 30
-    python software/calibration/go_neutral.py --arm both
+    python software/calibration/go_neutral.py
+    python software/calibration/go_neutral.py --velocity 200 --acceleration 30
 
   Imported:
     from software.calibration.go_neutral import go_neutral
     go_neutral(bus, neutral, velocity=100, acceleration=20)
 
 Arguments (standalone):
-  --arm           follower | leader | both  (required)
   --velocity      max joint speed in counts/s (default: 100 ≈ 8.8°/s)
   --acceleration  ramp rate in counts/s² (default: 20)
   --port          serial port (default: /dev/ttyACM0)
 
---arm both moves both arms simultaneously on one bus (one sync_write for all
+Always moves both arms simultaneously on one bus (one sync_write for all
 12 joints), the same prefixed-motor-name approach teleop.py uses.
 
 Torque is left ENABLED on exit (standalone mode only — the importable
@@ -140,8 +145,7 @@ def go_neutral(
 # ── Main ──────────────────────────────────────────────────────────────────────
 
 def main() -> None:
-    parser = argparse.ArgumentParser(description="Move arm to neutral pose")
-    parser.add_argument("--arm",          required=True, choices=["leader", "follower", "both"])
+    parser = argparse.ArgumentParser(description="Move both arms to the shared neutral pose")
     parser.add_argument("--velocity",     type=int, default=DEFAULT_VELOCITY,
                         help=f"Max speed in counts/s (default: {DEFAULT_VELOCITY} ≈ 8.8°/s)")
     parser.add_argument("--acceleration", type=int, default=DEFAULT_ACCELERATION,
@@ -149,25 +153,25 @@ def main() -> None:
     parser.add_argument("--port",         default=DEFAULT_PORT)
     args = parser.parse_args()
 
-    arm_list = ["follower", "leader"] if args.arm == "both" else [args.arm]
+    neutral_data = load_json(CONFIG_DIR / "neutral.json")
 
     motors: dict[str, Motor] = {}
     calibration: dict[str, MotorCalibration] = {}
     neutral: dict[str, float] = {}
 
-    for arm in arm_list:
-        cal_data     = load_json(CONFIG_DIR / f"calibration_{arm}.json")
-        neutral_data = load_json(CONFIG_DIR / f"neutral_{arm}.json")
+    for arm in ("follower", "leader"):
+        cal_data = load_json(CONFIG_DIR / f"calibration_{arm}.json")
 
         active_joints = [n for n in JOINT_NAMES if n in cal_data and n in neutral_data]
         skipped = [n for n in JOINT_NAMES if n not in active_joints]
         if skipped:
             print(f"Skipping {arm} joints with missing calibration or neutral: {skipped}")
 
-        # Prefix motor names when running both arms on one bus, so the
-        # identically-named joints (e.g. "shoulder_pan") don't collide —
-        # same convention teleop.py uses.
-        prefix = f"{arm}_" if args.arm == "both" else ""
+        # Prefix motor names — both arms share one bus, so the identically-
+        # named joints (e.g. "shoulder_pan") need disambiguating. Same
+        # convention teleop.py uses. Both arms get the SAME neutral_data
+        # values — that's what keeps them physically aligned.
+        prefix = f"{arm}_"
         calibration.update({f"{prefix}{n}": MotorCalibration(**cal_data[n]) for n in active_joints})
         neutral.update({f"{prefix}{n}": float(neutral_data[n]) for n in active_joints})
         motors.update(build_motors(arm, active_joints, prefix=prefix))

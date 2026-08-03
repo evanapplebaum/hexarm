@@ -107,10 +107,13 @@ GitHub: `github.com/evanapplebaum/hexarm`
 ### Compute — Raspberry Pi Zero 2W (RETIRED 2026-05-26 — kept as a pointer)
 Replaced by the Jetson Orin Nano Super. The full Pi UART bring-up chronology — PL011 vs mini-UART, `disable-bt`, the serial-console/`getty` trap, and the straight-through Waveshare wiring — lives in [`docs/debugging/servo-comms-debug-log.md`](debugging/servo-comms-debug-log.md). **One lesson carries forward to the Jetson:** a kernel serial console or `serial-getty` sitting on the servo UART silently eats RX bytes and breaks comms — always confirm it's off on whatever port the servos use (tracked under Setup Status → "Jetson — serial console verified off").
 
-### Vision (ordered, not yet in hand)
-- Wrist-mounted camera and overhead workspace camera
-- **Ordered 2026-07-14:** 2× Arducam OV9782 1MP Global Shutter USB Camera Board (B0385), UVC, M12 manual-focus lens — via Amazon.ca, expected delivery 2026-07-20–22. Chosen partly for reuse as the front stereo pair on a future quadruped project. Full rationale and purchase details in [`docs/robotdogplan.md`](robotdogplan.md).
-- Next once they arrive: mount one on the follower gripper (close-focus rack), one overhead (mid-distance rack); wire into LeRobot's camera config alongside the existing `FeetechMotorsBus` for dataset recording.
+### Vision (cameras in hand, overhead mounted — 2026-07-31)
+- 2× Arducam OV9782 1MP Global Shutter USB Camera Board (B0385), UVC, M12 manual-focus lens, 1280×800 MJPG. Ordered 2026-07-14, arrived ~07-22. Chosen partly for reuse as the front stereo pair on a future quadruped project. Full rationale and purchase details in [`docs/robotdogplan.md`](robotdogplan.md).
+- **Lens FOV — verified 2026-07-31:** Arducam's own B0385 manual specs the lens as **70°(H)**, confirmed to be the full/total horizontal angle (standard lens-spec convention), not a half-angle. The manufacturer does NOT publish vertical or diagonal FOV. The "~47° V" figure used in earlier planning below is a derived estimate from the 1280×800 sensor aspect ratio, not a manufacturer spec — treat it as approximate where precision matters (e.g. confirming full-reach clearance).
+- **Both cameras connected and enumerated.** Each UVC camera exposes 2 `/dev/videoN` nodes (capture + metadata) — overhead is `/dev/video0`, wrist is `/dev/video2`; `/dev/video1`/`/dev/video3` are the metadata-only nodes and aren't used. Confirmed via OpenCV (`cv2.VideoCapture(idx, cv2.CAP_V4L2)`) reading MJPG @ 1280×800 successfully. `v4l2-ctl` is not installed (`sudo apt install v4l-utils`, blocked by no passwordless sudo in the current session) — not needed so far since OpenCV covers format confirmation.
+- **Overhead camera — mounted and confirmed good (2026-07-31).** Positioned using a live MJPEG preview tool (see `software/vision/camera_preview.py` in Repository Structure below) against the target geometry: ~50° below horizontal, ~0.38 m above table, ~0.32 m in front of workspace center, aimed at follower workspace center, slant distance ~0.5 m. Framing locked — per the collection/deployment pose-identity constraint, do not move it again without re-deriving downstream calibration.
+- **Wrist camera — reprinted mount installed, placement not yet re-verified (2026-08-01).** The redesigned mount (built around the real 70°(H) FOV, positioned close to the jaws per the close-focus placement plan, aimed down the grasp axis — see prior entry for why the first print failed) is printed and fitted. A session to re-check aim/placement via the live preview tool (`software/vision/camera_preview.py`) and confirm focus at the actual close working distance was started but got sidetracked into the calibration/neutral-pose work below before the preview tool was actually run — **still outstanding, first thing to pick up next session.**
+- Once both are locked: wire into LeRobot's camera config alongside the existing `FeetechMotorsBus` for dataset recording.
 
 ---
 
@@ -152,10 +155,14 @@ hexarm/
 ├── software/
 │   ├── control/                        ← application-level scripts (run from repo root, conda lerobot)
 │   │   └── teleop.py                   ← leader-follower teleoperation; single bus, 12 motors; ✅ working (2026-06-03)
+│   ├── vision/                         ← camera positioning/dev tools (not part of the LeRobot camera config)
+│   │   └── camera_preview.py           ← headless MJPEG-over-HTTP live preview (stdlib http.server + cv2); serves one stream per --indices arg at http://<jetson-ip>:8080/videoN; used to aim/lock camera mounts before recording, then torn down
 │   ├── calibration/                    ← LeRobot-based calibration and arm control scripts
-│   │   ├── calibrate_lerobot.py        ← per-joint LeRobot calibration (--arm leader|follower); ✅ implements the fixed wrap-around flow (see Encoder Wrap-Around)
-│   │   ├── go_neutral.py               ← move arm(s) to captured neutral pose; importable by other scripts
-│   │   ├── record_neutral.py           ← capture current pose as neutral_<arm>.json
+│   │   ├── calibrate_lerobot.py        ← per-joint LeRobot calibration (--arm leader|follower); ✅ implements the fixed wrap-around flow (see Encoder Wrap-Around); single-Enter-per-joint flow (2026-08-01)
+│   │   ├── go_neutral.py               ← move BOTH arms to the shared neutral pose (config/neutral.json); no --arm flag (2026-08-01); importable by other scripts
+│   │   ├── record_neutral.py           ← capture the follower's pose as the shared config/neutral.json used by both arms; no --arm flag (2026-08-01)
+│   │   ├── set_startup_sequence.py     ← record a hand-performed leader-arm motion (Enter → 5s countdown → 5s recording @ 50Hz) → config/startup_sequence.json; ✅ new (2026-08-01)
+│   │   ├── run_startup_sequence.py     ← neutral → play recorded sequence on both arms → neutral; importable (used by teleop.py) or standalone; ✅ new (2026-08-01)
 │   │   ├── keyboard_follower.py        ← keyboard control of follower arm (normalize=False); ✅ works
 │   │   └── monitor_joints.py           ← live joint position display
 │   ├── low-lvl-setup/                  ← raw SDK diagnostics and one-time setup tools
@@ -191,8 +198,8 @@ hexarm/
 │       ├── home.json                   ← raw encoder home positions for move_one.py (IDs 1–6)
 │       ├── calibration_follower.json   ← LeRobot calibration — follower arm (IDs 1–6); ✅ working
 │       ├── calibration_leader.json     ← LeRobot calibration — leader arm (IDs 7–12); ✅ working
-│       ├── neutral_follower.json       ← captured neutral pose, normalized 0–100 (follower)
-│       └── neutral_leader.json         ← captured neutral pose, normalized 0–100 (leader)
+│       ├── neutral.json                ← single shared neutral pose, normalized 0–100, applied identically to BOTH arms (2026-08-01; replaces neutral_follower.json/neutral_leader.json — see Setup Status for why)
+│       └── startup_sequence.json       ← recorded leader-arm motion (50 Hz, ~5s of samples), played on both arms at teleop startup; ✅ new (2026-08-01)
 ├── .venv/                              ← Python venv (recreate per platform — NOT cross-platform)
 └── .gitignore
 ```
@@ -365,20 +372,27 @@ End-to-end SDK path has worked since 2026-05-25 (on the Pi) and now runs on the 
 | Bus communication test (all 12 servos) | ✅ Done (2026-06-03, both arms responding, teleop confirmed) |
 | SDK path (ping_one, calibrate) working on Jetson | ✅ Done (2026-05-26, sdk_diag 5/5, ping_one confirmed) |
 | Angle limits flashed to servo EPROM | ✅ Done (2026-07-27) |
-| Cameras — 2× Arducam OV9782 (B0385) global shutter USB, wrist + overhead | 📦 Ordered 2026-07-14 (Amazon.ca), arriving ~2026-07-22. See Vision section + `docs/robotdogplan.md`. |
+| Cameras — 2× Arducam OV9782 (B0385) global shutter USB, wrist + overhead | ✅ In hand, both connected (`/dev/video0` overhead, `/dev/video2` wrist). See Vision section + `docs/robotdogplan.md`. |
+| Local git object DB — corrupted loose objects found | ⚠️ Needs attention (found 2026-07-31) — 6 empty/corrupt loose objects; packed history intact (`git verify-pack` OK) and working tree unaffected, likely from an interrupted `git add` last session. Not yet fixed — see `docs/session.md` open threads. |
 | **Application** | |
 | config.py rewrite (Jetson ports, remove Pi 5 / Pi Zero 2W refs) | ⏳ Todo |
 | move_one.py — ping, ReadPos, torque enable, home move | ✅ Done (2026-05-28) |
 | torque_off.py — interactive torque disable | ✅ Done (2026-05-28) |
 | flash_angle_limits.py — write limits.json to servo EPROM | ✅ Done (2026-05-28) |
 | keyboard_follower.py — LeRobot keyboard control of follower arm | ✅ Done (2026-05-31) |
-| calibrate_lerobot.py — per-joint LeRobot calibration, both arms | ✅ Done — rewritten around configure_motors()/set_half_turn_homings()/record_ranges_of_motion() (2026-06-02). Clean re-calibration with current arms completed 2026-07-27. |
+| calibrate_lerobot.py — per-joint LeRobot calibration, both arms | ✅ Done — rewritten around configure_motors()/set_half_turn_homings()/record_ranges_of_motion() (2026-06-02). Clean re-calibration with current arms completed 2026-07-27. Redundant mid-flow Enter prompt removed 2026-08-01 — now one Enter to home+start the sweep, one Enter to record and advance (see Neutral Pose Unification section). |
 | LeRobot calibration — encoder wrap-around fix | ✅ Done (solved 2026-06-01, code rewritten 2026-06-02) |
-| go_neutral.py — move arm(s) to neutral; importable | ✅ Done — both arms working (2026-06-03) |
-| record_neutral.py — capture normalized neutral pose | ✅ Done — neutral_follower.json and neutral_leader.json captured |
-| teleop.py — leader-follower teleoperation | ✅ Done (2026-06-03, software/control/teleop.py) |
+| go_neutral.py — move both arms to shared neutral; importable | ✅ Done — rewritten 2026-08-01: `--arm` flag removed, always drives both arms to the one shared `neutral.json` (previously per-arm `--arm follower\|leader\|both`) |
+| record_neutral.py — capture shared neutral pose | ✅ Done — rewritten 2026-08-01: `--arm` flag removed, always hand-poses the follower only and writes the single `neutral.json` used by both arms (previously separate `neutral_follower.json`/`neutral_leader.json` captures — those two files are now stale/unused on disk) |
+| set_startup_sequence.py — record leader-arm startup sequence | ✅ Done (2026-08-01, software/calibration/set_startup_sequence.py) |
+| run_startup_sequence.py — neutral → sequence → neutral, both arms | ✅ Done (2026-08-01, software/calibration/run_startup_sequence.py); used by teleop.py startup |
+| teleop.py — leader-follower teleoperation | ✅ Done (2026-06-03, software/control/teleop.py). Startup rewritten 2026-08-01 to go through run_startup_sequence.py instead of a bare go_neutral() call — see Neutral Pose Unification section below for the bug this fixes. New prerequisite: `config/startup_sequence.json` must exist (run set_startup_sequence.py first) or teleop.py raises FileNotFoundError. |
 | First teleoperation test | ✅ Done (2026-06-03, confirmed working perfectly) |
 | .gitignore for CSV stress-test artifacts | ⏳ Todo |
+| camera_preview.py — headless MJPEG live-view tool for camera positioning | ✅ Done (2026-07-31, software/vision/camera_preview.py) |
+| Overhead camera mounted at target geometry | ✅ Done (2026-07-31) — confirmed via live preview, framing locked |
+| Wrist camera mounted at target geometry | ⏳ In progress (2026-08-01) — reprinted mount (designed around the real 70°(H) FOV) is printed and installed; placement/aim re-check via `camera_preview.py` and a close-focus check still outstanding — got sidetracked into calibration/neutral-pose work, first thing to pick up next session |
+| Cameras wired into LeRobot camera config | ⏳ Todo — blocked on wrist mount |
 | Dataset recording | ⏳ Todo |
 | Policy training | ⏳ Todo |
 
@@ -461,6 +475,9 @@ This resolves to `software/scservo_sdk/`. These scripts run standalone (not unde
 - LeRobot teleop loop design — single FeetechMotorsBus for both arms on one port; prefix motor names (follower_/leader_) to avoid collisions; 1:1 normalized mapping works when arms are physically identical with drive_mode=0
 - STS3215 Acceleration register — value 0 means no limit (like Maximum_Velocity_Limit); go_neutral must reset both to 0 on exit or downstream scripts inherit slow ramp rates
 - Modular vs. monolithic CAD design — building a part as a union of smaller, independently swappable sub-parts (vs. one single-body design) costs more upfront modeling effort but pays back heavily on iteration speed: a monolithic part requires a full redesign (or full reprint) for a single failed feature, while a modular one lets you reprint/redesign just the sub-part that failed and reuse the rest. Currently being felt directly on the claw redesign (see `docs/debugging/postmortems.md` #5) — still calibrating exactly how much time this saves in practice, not yet a settled rule.
+- UVC camera device enumeration on Linux — one physical camera exposes multiple `/dev/videoN` nodes (capture + metadata); only the capture-capable node (check `ID_V4L_CAPABILITIES` via udev, or just try opening it) actually streams frames.
+- Lens FOV spec ambiguity — a quoted FOV number is meaningless without knowing which axis (horizontal/vertical/diagonal) and whether it's the full/total angle or a half-angle; manufacturers often publish only one axis. Confirmed Arducam's B0385 "70°(H)" is the full horizontal angle via the manufacturer manual — the "H" already disambiguates the axis, and full-angle is the default convention unless stated otherwise.
+- Two UVC cameras of the same make/model can report identical USB serial numbers — cheap OEM UVC bridge chips (this board uses one branded "Vitade AF", VID:PID 0c45:6366) often don't burn a unique serial, so distinguishing two identical cameras by udev/serial alone doesn't work; motion (nudge the camera, watch which video feed moves) is the reliable disambiguator.
 
 ---
 
@@ -565,7 +582,7 @@ None — both the physics and the code are done. `calibrate_lerobot.py` was rewr
 
 - Located at `software/control/teleop.py`
 - Single `FeetechMotorsBus` on `/dev/ttyACM0` with all 12 motors (prefixed `follower_*` and `leader_*`)
-- Startup: safe-enables both arms → `go_neutral` both simultaneously → disables leader torque → loop starts
+- Startup (updated 2026-08-01): safe-enables both arms → `run_startup_sequence` (neutral → recorded startup sequence on both arms → neutral) → disables leader torque → loop starts
 - Loop: `sync_read` leader normalized positions (0–100) → 1:1 dict remap → `sync_write` to follower at 50 Hz
 - Arms are physically identical (not mirrored), so `drive_mode=0` + 1:1 normalized mapping = matching poses
 - No pre-running `go_neutral` needed — teleop handles its own startup sequence
@@ -577,6 +594,22 @@ None — both the physics and the code are done. `calibrate_lerobot.py` was rewr
 
 `go_neutral` was resetting `Maximum_Velocity_Limit` to 0 after completing but **not** resetting `Acceleration`. Leaving `Acceleration = 20` on the servos caused sluggish ramp-up in the teleop loop. Fixed: both registers are now reset to 0 on completion.
 
-*Last updated: 2026-07-27 (session 5 — clean re-calibration of both arms completed with the fixed flow, and angle limits flashed to servo EPROM; started redesigning the claw — old one too small, dropping objects, see `docs/debugging/postmortems.md` #5; added `docs/session.md` as a personal fast-path setup/continuity doc, separate from this AI-handoff file)*
+### Neutral pose unification — fixes follower-snap-on-leader-release (2026-08-01)
 
-*Previously: 2026-07-14 (session 4 — software audit after 2-month break: corrected stale "calibrate_lerobot.py needs rewrite" claims (rewrite already shipped 2026-06-02), removed dead `low-lvl-setup/config.py` (Pi 5 ports, backwards leader/follower ID convention, zero references) and the already-deleted `low-lvl-setup/teleop.py` doc entry; scoped camera purchase for both hexarm and a future quadruped reuse — see `docs/robotdogplan.md` — and ordered 2× Arducam OV9782 B0385 global shutter USB cameras)*
+**Bug:** at teleop startup, the follower would suddenly snap to the leader's position the instant leader torque was dropped (step 2 of the old startup sequence). Root cause: `neutral_follower.json` and `neutral_leader.json` were captured as two separate hand-poses via `record_neutral.py --arm <arm>`. Two independently hand-posed captures are never bit-identical — so each arm parked at a *slightly different* physical position during `go_neutral`, and the loop's first `sync_read` of the leader's actual position yanked the follower to match it.
+
+**Fix:** `record_neutral.py` now always hand-poses the follower only (no `--arm` flag) and writes a single `software/config/neutral.json`. `go_neutral.py` now always drives *both* arms (no `--arm` flag) to that one shared file — identical normalized values sent to `follower_*` and `leader_*` in the same `sync_write`. Since both arms are physically identical with `drive_mode=0` (the same invariant `teleop.py`'s 1:1 leader→follower mapping already relies on), matching normalized values now means matching physical poses, so there's nothing left to snap to. `teleop.py` was updated to load the one `neutral.json` instead of the two per-arm files. The old `neutral_follower.json`/`neutral_leader.json` are left on disk but are no longer read by anything — `neutral.json` must be recaptured via `record_neutral.py` before `go_neutral.py`/`teleop.py` will run.
+
+### Startup sequence feature (2026-08-01)
+
+New capability, motivated by wanting a repeatable choreographed motion (e.g. a wave/wake-up gesture) at the start of every teleop session, on top of the neutral-pose fix above:
+
+- `set_startup_sequence.py` — Enter to arm → 5s countdown (printed each second) → `>>> RECORDING NOW <<<` → records 5s of the leader's hand-performed motion at 50 Hz (torque disabled, leader only) → saves `{"hz": 50, "samples": [...]}` to `software/config/startup_sequence.json`.
+- `run_startup_sequence.py` — importable `run_startup_sequence(bus, neutral, sequence)`: velocity/acceleration-limited move to neutral via `go_neutral()` → open-loop `sync_write` playback of the recorded samples onto **both** arms simultaneously (same values to `follower_*`/`leader_*`, same shared-pose invariant as above) → velocity/acceleration-limited move back to neutral via `go_neutral()` again (the "careful" return, handles arbitrary wherever-playback-left-off starting position since `go_neutral` targets an absolute pose). Also runnable standalone.
+- `teleop.py`'s startup sequence is now: torque-enable both arms → `run_startup_sequence` (neutral → recorded sequence → neutral) → drop leader torque → teleop loop. New hard prerequisite: `software/config/startup_sequence.json` must exist, or `teleop.py` raises `FileNotFoundError` at startup — **run `set_startup_sequence.py` at least once before the next teleop session.**
+
+*Last updated: 2026-08-01 (session 7 — wrist camera's reprinted mount (designed around the real 70°(H) FOV) installed, but the live-preview placement/aim re-check was started and then deferred, not completed this session; found and fixed the root cause of the follower snapping to the leader's position when leader torque dropped at teleop startup — two independently hand-posed `neutral_follower.json`/`neutral_leader.json` were never bit-identical, so `record_neutral.py`/`go_neutral.py`/`teleop.py` were rewritten around one shared `neutral.json` used identically by both arms (see Neutral Pose Unification); added a startup-sequence feature — `set_startup_sequence.py` records a hand-performed leader motion, `run_startup_sequence.py` replays it on both arms between neutral moves, wired into `teleop.py`'s startup in place of the bare `go_neutral()` call (see Startup Sequence Feature); simplified `calibrate_lerobot.py`'s per-joint flow from three Enter presses to two by removing a redundant prompt in front of `record_ranges_of_motion()`, which already blocks on its own Enter internally; confirmed the local git object database corruption noted last session is still present and unresolved)*
+
+*Previously: 2026-07-31 (session 6 — cameras arrived and connected (`/dev/video0` overhead, `/dev/video2` wrist); built `software/vision/camera_preview.py`, a headless MJPEG live-view tool, and used it to position and lock the overhead tower against the target geometry; verified the Arducam B0385 lens FOV against the manufacturer manual (70°(H), confirmed full/total horizontal angle — vertical/diagonal not manufacturer-specified); found the wrist camera's first mount was placed too far back and aimed too level, framing mostly background instead of the grasp zone — Evan is reprinting the mount designed around the real FOV this time; also discovered the local git object database has corrupt loose objects — packed history and working tree are intact, not yet resolved)*
+
+*Previously: 2026-07-27 (session 5 — clean re-calibration of both arms completed with the fixed flow, and angle limits flashed to servo EPROM; started redesigning the claw — old one too small, dropping objects, see `docs/debugging/postmortems.md` #5; added `docs/session.md` as a personal fast-path setup/continuity doc, separate from this AI-handoff file)*

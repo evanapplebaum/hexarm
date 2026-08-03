@@ -5,6 +5,9 @@ import readchar
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
+""" Paste into terminal @ data/hexarm/
+python software/control/torque_off.py --all
+"""
 from scservo_sdk import PortHandler, sms_sts, COMM_SUCCESS, SMS_STS_TORQUE_ENABLE
 
 DEFAULT_PORT = "/dev/ttyACM0"

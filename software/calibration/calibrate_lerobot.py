@@ -156,9 +156,10 @@ def main() -> None:
     #   (a) Home at center — parks the encoder seam in the dead gap.
     #   (b) Sweep both stops — records min/max in the safe homed frame.
     print("\nStep 3: Per-joint calibration.")
-    print("  For each joint you will be prompted twice:")
-    print("  First: move to CENTER of travel range, press Enter.")
-    print("  Then:  sweep to BOTH physical stops, press Enter.\n")
+    print("  For each joint you will be prompted once:")
+    print("  Move to CENTER of travel range, press Enter — this sets the")
+    print("  homing offset and immediately starts the sweep. Move both")
+    print("  physical stops, then press Enter again to record and advance.\n")
 
     bus.disable_torque()
 
@@ -167,14 +168,17 @@ def main() -> None:
     range_maxes:    dict[str, int] = {}
 
     for name in motors:
-        # (a) Home at center
-        input(f"  [{name}] Move to CENTER of travel. Press Enter to set homing offset...")
+        # (a) Home at center, then fall straight through into sweep mode —
+        # record_ranges_of_motion() below starts streaming live positions
+        # immediately and blocks on its own Enter check, so no second
+        # "start sweep" prompt is needed here.
+        input(f"  [{name}] Move to CENTER of travel. Press Enter to set homing offset and begin sweep...")
         offsets = bus.set_half_turn_homings(motors=[name])
         homing_offsets[name] = int(offsets[name])
         print(f"    → Homing offset written: {homing_offsets[name]}")
 
         # (b) Record ranges in homed frame
-        input(f"  [{name}] Sweep to BOTH stops. Press Enter when done...")
+        print(f"  [{name}] Sweep to BOTH stops now, then press Enter to record...")
         mins, maxes = bus.record_ranges_of_motion(motors=[name])
         range_mins[name]   = int(mins[name])
         range_maxes[name]  = int(maxes[name])
