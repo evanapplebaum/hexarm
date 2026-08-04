@@ -3,10 +3,13 @@
 set_startup_sequence.py — Record a hand-performed motion sequence on the
 leader arm, to be replayed on both arms by run_startup_sequence.py.
 
-Torque is disabled on the leader only — move it by hand while this records
-Present_Position (normalized 0–100) at a fixed rate. After a keypress, a
-5-second countdown gives you time to get in position; recording then runs
-for a fixed 5-second window.
+Both arms are driven to the shared neutral pose first — the same starting
+point run_startup_sequence.py's playback begins from, so the recorded
+trajectory doesn't jump on replay. Torque is then disabled on the leader
+only (the follower stays enabled, holding neutral); move the leader by hand
+while this records its Present_Position (normalized 0–100) at a fixed rate.
+After a keypress, a 5-second countdown gives you time to get in position;
+recording then runs for a fixed 5-second window.
 
 Usage (from hexarm root, conda lerobot env):
   conda activate lerobot
@@ -15,6 +18,10 @@ Usage (from hexarm root, conda lerobot env):
 Arguments:
   --port  serial port (default: /dev/ttyACM0)
 
+Prerequisites:
+  - Both arms calibrated  (software/config/calibration_*.json)
+  - Neutral pose captured (software/config/neutral.json, via record_neutral.py)
+
 Output:
   software/config/startup_sequence.json
   {"hz": <int>, "samples": [{joint_name: normalized_value, ...}, ...]}
@@ -22,8 +29,14 @@ Output:
 
 import argparse
 import json
+import sys
 import time
 from pathlib import Path
+
+# Add repo root (hexarm/) to path — NOT software/, which would shadow the
+# pip-installed scservo_sdk with our local copy and break LeRobot imports.
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from software.calibration.go_neutral import at_neutral, go_neutral, safe_enable_torque  # noqa: E402
 
 from lerobot.motors.feetech import FeetechMotorsBus
 from lerobot.motors.motors_bus import Motor, MotorCalibration, MotorNormMode
@@ -44,34 +57,28 @@ DEFAULT_PORT  = "/dev/ttyACM0"
 CONFIG_DIR    = Path("software/config")
 
 COUNTDOWN_SECONDS = 5
-RECORD_SECONDS    = 5
+RECORD_SECONDS    = 10
 RECORD_HZ         = 50   # matches teleop.py's default control-loop rate
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
 
-def build_motors(arm: str) -> dict[str, Motor]:
+def load_json(path: Path) -> dict:
+    if not path.exists():
+        raise FileNotFoundError(f"Missing config file: {path}")
+    with open(path) as f:
+        return json.load(f)
+
+
+def build_motors(arm: str, names: list[str], prefix: str = "") -> dict[str, Motor]:
     id_offset = ARM_ID_OFFSET[arm]
     return {
-        JOINT_NAMES[i]: Motor(
-            id=i + 1 + id_offset,
+        f"{prefix}{name}": Motor(
+            id=JOINT_NAMES.index(name) + 1 + id_offset,
             model="sts3215",
             norm_mode=MotorNormMode.RANGE_0_100,
         )
-        for i in range(6)
+        for name in names
     }
-
-
-def load_calibration(arm: str) -> dict[str, MotorCalibration]:
-    """Load calibration from JSON backup. Raises if file doesn't exist."""
-    cal_path = CONFIG_DIR / f"calibration_{arm}.json"
-    if not cal_path.exists():
-        raise FileNotFoundError(
-            f"No calibration file found at {cal_path}. "
-            f"Run calibrate_lerobot.py --arm {arm} first."
-        )
-    with open(cal_path) as f:
-        raw = json.load(f)
-    return {name: MotorCalibration(**data) for name, data in raw.items()}
 
 # ── Main ──────────────────────────────────────────────────────────────────────
 
@@ -81,16 +88,47 @@ def main() -> None:
     parser.add_argument("--port", default=DEFAULT_PORT)
     args = parser.parse_args()
 
-    motors      = build_motors("leader")
-    calibration = load_calibration("leader")
-    out_path    = CONFIG_DIR / "startup_sequence.json"
+    neutral_data = load_json(CONFIG_DIR / "neutral.json")
+    out_path     = CONFIG_DIR / "startup_sequence.json"
+
+    # Build both arms on one bus — same prefixed-motor-name convention as
+    # go_neutral.py/run_startup_sequence.py — so we can drive both to neutral
+    # before recording, then selectively drop torque on the leader only.
+    motors: dict[str, Motor] = {}
+    calibration: dict[str, MotorCalibration] = {}
+    neutral: dict[str, float] = {}
+
+    for arm in ("follower", "leader"):
+        cal_data = load_json(CONFIG_DIR / f"calibration_{arm}.json")
+        active_joints = [n for n in JOINT_NAMES if n in cal_data and n in neutral_data]
+        skipped = [n for n in JOINT_NAMES if n not in active_joints]
+        if skipped:
+            print(f"Skipping {arm} joints with missing calibration or neutral: {skipped}")
+
+        prefix = f"{arm}_"
+        calibration.update({f"{prefix}{n}": MotorCalibration(**cal_data[n]) for n in active_joints})
+        neutral.update({f"{prefix}{n}": float(neutral_data[n]) for n in active_joints})
+        motors.update(build_motors(arm, active_joints, prefix=prefix))
+
+    if not neutral:
+        raise RuntimeError("No joints to move — run calibrate_lerobot.py and record_neutral.py first.")
+
+    leader_motors = [name for name in motors if name.startswith("leader_")]
 
     bus = FeetechMotorsBus(port=args.port, motors=motors, calibration=calibration)
     bus.connect()
-    print(f"Connected to {args.port}")
+    print(f"Connected to {args.port}  ({len(motors)} motor(s))")
 
-    bus.disable_torque()
-    print("\nTorque disabled. Get the leader arm ready to perform the startup sequence.")
+    safe_enable_torque(bus)
+    if at_neutral(bus, neutral):
+        print("Both arms already at neutral — skipping the move.")
+    else:
+        print("Moving both arms to neutral before recording...")
+        go_neutral(bus, neutral)
+
+    bus.disable_torque(leader_motors)
+    print("\nTorque disabled on the leader only (follower holds neutral). "
+          "Move the leader by hand to perform the startup sequence.")
     input("Press Enter to begin the countdown...\n")
 
     for remaining in range(COUNTDOWN_SECONDS, 0, -1):
@@ -104,8 +142,11 @@ def main() -> None:
     t_start = time.monotonic()
     while time.monotonic() - t_start < RECORD_SECONDS:
         t0 = time.monotonic()
-        positions = bus.sync_read("Present_Position", normalize=True)
-        samples.append({name: round(float(pos), 2) for name, pos in positions.items()})
+        positions = bus.sync_read("Present_Position", leader_motors, normalize=True)
+        samples.append({
+            name.removeprefix("leader_"): round(float(pos), 2)
+            for name, pos in positions.items()
+        })
         elapsed = time.monotonic() - t0
         time.sleep(max(0.0, period - elapsed))
 

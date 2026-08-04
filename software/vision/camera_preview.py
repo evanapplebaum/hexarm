@@ -27,10 +27,12 @@ class Camera:
         self.cap.set(cv2.CAP_PROP_FRAME_HEIGHT, height)
         self.lock = threading.Lock()
         self.jpeg = None
-        threading.Thread(target=self._loop, daemon=True).start()
+        self._stop = threading.Event()
+        self._thread = threading.Thread(target=self._loop, daemon=True)
+        self._thread.start()
 
     def _loop(self):
-        while True:
+        while not self._stop.is_set():
             ok, frame = self.cap.read()
             if ok:
                 ok, buf = cv2.imencode(".jpg", frame)
@@ -43,6 +45,11 @@ class Camera:
     def get_jpeg(self):
         with self.lock:
             return self.jpeg
+
+    def close(self):
+        self._stop.set()
+        self._thread.join(timeout=2)
+        self.cap.release()
 
 
 def make_handler(cameras):
@@ -70,6 +77,10 @@ def make_handler(cameras):
                 self.send_response(200)
                 self.send_header("Content-Type", f"multipart/x-mixed-replace; boundary={BOUNDARY}")
                 self.end_headers()
+                # A client that stops reading without closing the socket (e.g. a
+                # browser back-forward-cache freezing a tab mid-stream) would
+                # otherwise block this thread forever on wfile.write().
+                self.connection.settimeout(10)
                 try:
                     while True:
                         jpeg = cam.get_jpeg()
@@ -80,7 +91,9 @@ def make_handler(cameras):
                             self.wfile.write(jpeg)
                             self.wfile.write(b"\r\n")
                         time.sleep(1 / 30)
-                except (BrokenPipeError, ConnectionResetError):
+                except OSError:
+                    # Covers BrokenPipeError/ConnectionResetError (client closed)
+                    # and socket.timeout (client stopped reading without closing).
                     pass
                 return
 
@@ -99,8 +112,16 @@ def main():
 
     cameras = {i: Camera(i, args.width, args.height) for i in args.indices}
     server = ThreadingHTTPServer(("0.0.0.0", args.port), make_handler(cameras))
+    server.daemon_threads = True  # don't let a wedged streaming connection block shutdown
     print(f"Serving on http://0.0.0.0:{args.port}  (index page lists each /videoN feed)")
-    server.serve_forever()
+    try:
+        server.serve_forever()
+    except KeyboardInterrupt:
+        pass
+    finally:
+        server.server_close()
+        for cam in cameras.values():
+            cam.close()
 
 
 if __name__ == "__main__":

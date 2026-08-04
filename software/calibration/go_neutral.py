@@ -11,7 +11,7 @@ docstring for why that matters.
 
 Sets Maximum_Velocity_Limit and Acceleration on each joint, commands
 Goal_Position for all joints simultaneously, then polls Present_Position
-until all joints are within ±0.5 of their targets (normalized 0–100).
+until all joints are within ±1.0 of their targets (normalized 0–100).
 
 Can be used standalone or imported by other scripts (e.g. teleop.py):
 
@@ -28,6 +28,11 @@ Arguments (standalone):
   --velocity      max joint speed in counts/s (default: 100 ≈ 8.8°/s)
   --acceleration  ramp rate in counts/s² (default: 20)
   --port          serial port (default: /dev/ttyACM0)
+  --diagnostic    dead-man's-switch mode: the arms only move while SPACE is
+                   held down; releasing it freezes them in place immediately.
+                   Press 'q' to abort (also freezes in place). Useful for
+                   stepping a suspect move through by hand instead of letting
+                   it run open-loop to completion.
 
 Always moves both arms simultaneously on one bus (one sync_write for all
 12 joints), the same prefixed-motor-name approach teleop.py uses.
@@ -39,7 +44,11 @@ separately if you want it disabled afterward.
 
 import argparse
 import json
+import select
+import sys
+import termios
 import time
+import tty
 from pathlib import Path
 
 from lerobot.motors.feetech import FeetechMotorsBus
@@ -53,12 +62,45 @@ ARM_ID_OFFSET = {"follower": 0, "leader": 6}
 DEFAULT_PORT  = "/dev/ttyACM0"
 CONFIG_DIR    = Path("software/config")
 
-DEFAULT_VELOCITY     = 100   # counts/s  ≈ 8.8°/s
-DEFAULT_ACCELERATION = 20    # counts/s²
-POSITION_TOLERANCE   = 0.5   # normalized units (0–100 scale)
-POLL_HZ              = 20
+DEFAULT_VELOCITY     = 50   # counts/s  ≈ 8.8°/s
+DEFAULT_ACCELERATION = 10    # counts/s²
+POSITION_TOLERANCE   = 1.0   # normalized units (0–100 scale)
+POLL_HZ              = 50
+
+# No key-up event exists over a raw SSH terminal, so "held" is inferred from
+# your OS's keyboard auto-repeat: as long as another space arrives within this
+# window, treat the key as still down. Too short and normal repeat gaps read
+# as "released"; too long and releasing space doesn't freeze the arm promptly.
+SPACE_HOLD_WINDOW = 0.2  # seconds
 
 # ── Helpers ───────────────────────────────────────────────────────────────────
+
+def _read_available_key() -> str | None:
+    """Non-blocking single-char read from stdin; None if nothing waiting."""
+    if select.select([sys.stdin], [], [], 0)[0]:
+        return sys.stdin.read(1)
+    return None
+
+
+class _RawTerminal:
+    """Puts stdin in raw mode (no echo/line-buffering) for the diagnostic loop."""
+
+    def __enter__(self):
+        self._fd = sys.stdin.fileno()
+        self._old = termios.tcgetattr(self._fd)
+        tty.setraw(self._fd)
+        return self
+
+    def __exit__(self, *exc_info):
+        termios.tcsetattr(self._fd, termios.TCSADRAIN, self._old)
+
+
+def at_neutral(bus: FeetechMotorsBus, neutral: dict[str, float],
+               tolerance: float = POSITION_TOLERANCE) -> bool:
+    """True if every joint in `neutral` is already within `tolerance` of its target."""
+    positions = bus.sync_read("Present_Position", normalize=True)
+    return all(abs(float(positions[n]) - target) <= tolerance for n, target in neutral.items())
+
 
 def load_json(path: Path) -> dict:
     if not path.exists():
@@ -93,6 +135,7 @@ def go_neutral(
     neutral: dict[str, float],
     velocity: int = DEFAULT_VELOCITY,
     acceleration: int = DEFAULT_ACCELERATION,
+    diagnostic: bool = False,
 ) -> None:
     """Move all joints to neutral positions and block until all arrive.
 
@@ -101,6 +144,9 @@ def go_neutral(
         neutral:      Dict of {joint_name: target_normalized (0–100)}.
         velocity:     Maximum joint speed in counts/s.
         acceleration: Ramp rate in counts/s².
+        diagnostic:   Dead-man's-switch mode — only advances toward neutral
+                      while SPACE is held; releasing it freezes the arms in
+                      place immediately. 'q' aborts (also freezes in place).
     """
     active_joints = list(neutral.keys())
     timeout = int(4096 / velocity) + 5  # generous: full range at chosen speed + 5s
@@ -110,25 +156,67 @@ def go_neutral(
         bus.write("Maximum_Velocity_Limit", name, velocity,     normalize=False)
         bus.write("Acceleration",           name, acceleration, normalize=False)
 
-    # Fire all joints simultaneously
-    bus.sync_write("Goal_Position", neutral, normalize=True)
+    raw_term = _RawTerminal() if diagnostic else None
+    held_until = 0.0
+    aborted = False
+
+    if diagnostic:
+        print("DIAGNOSTIC MODE — hold SPACE to move, release to freeze in place. 'q' to abort.")
+        raw_term.__enter__()
+    else:
+        # Fire all joints simultaneously
+        bus.sync_write("Goal_Position", neutral, normalize=True)
+
     print(f"Moving {len(active_joints)} joints to neutral "
           f"(velocity={velocity}, accel={acceleration})...")
 
     t_start = time.time()
-    while time.time() - t_start < timeout:
-        positions = bus.sync_read("Present_Position", normalize=True)
-        if all(abs(float(positions[n]) - neutral[n]) < POSITION_TOLERANCE
-               for n in active_joints):
-            break
-        time.sleep(1 / POLL_HZ)
-    else:
-        # Loop completed without break — timed out
-        positions = bus.sync_read("Present_Position", normalize=True)
-        stalled = [n for n in active_joints
-                   if abs(float(positions[n]) - neutral[n]) >= POSITION_TOLERANCE]
-        print(f"WARNING: timed out after {timeout}s. "
-              f"Joints not at target: {stalled}")
+    try:
+        while time.time() - t_start < timeout:
+            if diagnostic:
+                key = _read_available_key()
+                if key == " ":
+                    held_until = time.time() + SPACE_HOLD_WINDOW
+                elif key == "q":
+                    aborted = True
+                    break
+
+                if time.time() < held_until:
+                    bus.sync_write("Goal_Position", neutral, normalize=True)
+                else:
+                    # Not held (or not yet pressed) — freeze exactly where we are.
+                    current = bus.sync_read("Present_Position", normalize=False)
+                    bus.sync_write(
+                        "Goal_Position",
+                        {n: int(float(current[n])) for n in active_joints},
+                        normalize=False,
+                    )
+
+            positions = bus.sync_read("Present_Position", normalize=True)
+            if all(abs(float(positions[n]) - neutral[n]) <= POSITION_TOLERANCE
+                   for n in active_joints):
+                break
+            time.sleep(1 / POLL_HZ)
+        else:
+            # Loop completed without break — timed out
+            positions = bus.sync_read("Present_Position", normalize=True)
+            stalled = [n for n in active_joints
+                       if abs(float(positions[n]) - neutral[n]) > POSITION_TOLERANCE]
+            print(f"WARNING: timed out after {timeout}s. "
+                  f"Joints not at target: {stalled}")
+    finally:
+        if raw_term is not None:
+            raw_term.__exit__(None, None, None)
+
+    if aborted:
+        current = bus.sync_read("Present_Position", normalize=False)
+        bus.sync_write(
+            "Goal_Position",
+            {n: int(float(current[n])) for n in active_joints},
+            normalize=False,
+        )
+        print("Aborted by user ('q') — frozen in place.")
+        return
 
     elapsed = time.time() - t_start
 
@@ -151,6 +239,8 @@ def main() -> None:
     parser.add_argument("--acceleration", type=int, default=DEFAULT_ACCELERATION,
                         help=f"Ramp rate in counts/s² (default: {DEFAULT_ACCELERATION})")
     parser.add_argument("--port",         default=DEFAULT_PORT)
+    parser.add_argument("--diagnostic",   action="store_true",
+                        help="Dead-man's-switch mode: hold SPACE to move, release to freeze in place")
     args = parser.parse_args()
 
     neutral_data = load_json(CONFIG_DIR / "neutral.json")
@@ -184,7 +274,8 @@ def main() -> None:
     print(f"Connected to {args.port}  ({len(motors)} motor(s))")
 
     safe_enable_torque(bus)
-    go_neutral(bus, neutral, velocity=args.velocity, acceleration=args.acceleration)
+    go_neutral(bus, neutral, velocity=args.velocity, acceleration=args.acceleration,
+               diagnostic=args.diagnostic)
 
     # disable_torque=False: leave torque enabled on exit. FeetechMotorsBus's
     # default disconnect() disables torque, which was silently undoing the

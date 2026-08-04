@@ -67,13 +67,15 @@ python software/control/teleop.py             # run teleop
 
 ## 2. Where We Left Off
 
-*Last updated: 2026-08-01*
+*Last updated: 2026-08-03*
 
 ### Current state
-- **Git note (2026-07-31, still unresolved 2026-08-01):** local `.git/objects` currently has 6 empty/corrupt loose objects — `git status`, `git log`, etc. error out. `git verify-pack` on the packfile is clean and the reflog shows history through commit `48f9eaa5...` (merge, 2026-07-27), so packed history and all working-tree files look intact — reads like an interrupted `git add` from the tail end of the 2026-07-27 session, not real data loss. **Still not fixed** — re-confirmed broken 2026-08-01, same object (`ddf24cd3...`). See Open threads below before trying to commit anything (this session's script changes are currently uncommitted for this reason).
-- Teleoperation is working end-to-end (both arms, single bus, 50Hz) — startup sequence changed 2026-08-01, see below.
+- **Git corruption — fixed (2026-08-03).** The 6 empty/corrupt loose objects found 2026-07-31 were the local `master` tip and a few others; `origin` had them intact, so the fix was deleting the corrupt objects plus the local refs pointing at them, then re-fetching. `git fsck --full` is clean. The 2026-08-01 session's pending script changes are committed and pushed (`60ce4ac`). Full details in `context.md`'s Setup Status and session-8 log entry.
+- **Follower joint (elbow_flex, ID 3) broke, was reprinted and reassembled, and the follower arm was fully re-calibrated (2026-08-03)** — fresh `calibration_follower.json` and `neutral.json`.
+- Teleoperation is working end-to-end (both arms, single bus, 50Hz) — startup sequence changed 2026-08-01, hardened further 2026-08-03, see below.
 - **Neutral-pose bug fixed (2026-08-01):** the follower used to snap to the leader's position the instant leader torque dropped at teleop startup. Cause: `neutral_follower.json` and `neutral_leader.json` were two independently hand-posed captures, never bit-identical. Fix: `record_neutral.py`/`go_neutral.py` lost their `--arm` flags — `record_neutral.py` now always poses the follower only and writes one shared `neutral.json`; `go_neutral.py` now always drives both arms to that one file. `teleop.py` updated to match. **Old `neutral_follower.json`/`neutral_leader.json` are stale — `neutral.json` needs to be captured fresh via `record_neutral.py` before `go_neutral.py` or `teleop.py` will run.** Full writeup in `docs/context.md`'s "Neutral pose unification" section.
 - **New: startup sequence feature (2026-08-01).** `set_startup_sequence.py` records a hand-performed leader-arm motion (Enter → 5s countdown → 5s recording @ 50Hz) to `startup_sequence.json`; `run_startup_sequence.py` replays it on both arms between two `go_neutral()` calls (neutral → sequence → neutral). `teleop.py`'s startup now calls this instead of a bare `go_neutral()`. **`startup_sequence.json` doesn't exist yet — `teleop.py` will raise `FileNotFoundError` until `set_startup_sequence.py` is run at least once.**
+- **Startup sequence hardened, confirmed working end-to-end (2026-08-03).** After the follower recalibration above, `go_neutral.py` threw an `OverEle` (overcurrent) fault on elbow_flex — turned out the servo keeps driving toward `Goal_Position` under torque even after the script's polling loop times out, so sustained contact with an obstruction (not a momentary spike) trips the fault; resolved by power-cycling the servo bus, not reproduced since. Separately found and fixed a real bug while chasing what looked like a second hang: `go_neutral.py`'s arrival check used strict `<` against `POSITION_TOLERANCE`, so a joint sitting exactly on the boundary (elbow_flex at `87.5` vs. target `87.0`) never registered as arrived and hung to the full timeout — fixed to `<=`, tolerance widened 0.5 → 1.0. Added `at_neutral()` (skip the move if already close enough) and a `--diagnostic` hold-SPACE-to-move dead-man's-switch mode to `go_neutral.py`. Rewrote `set_startup_sequence.py` to drive both arms to neutral first and drop torque on the leader only (previously leader-only, no neutral move), and extended the recording window 5s → 10s. `run_startup_sequence.py` now runs cleanly end-to-end. Full writeup in `context.md`'s session-8 log entry.
 - **Done 2026-07-27:** clean re-calibration of both arms with the fixed flow, and angle limits flashed to servo EPROM. Both were the last blockers before camera integration/dataset recording.
 - **`calibrate_lerobot.py` UX simplified (2026-08-01):** per-joint flow went from 3 Enter presses to 2 — the redundant prompt in front of `record_ranges_of_motion()` was removed (that function already blocks on its own Enter internally, so it never needed a second prompt to "start").
 - **Cameras arrived and connected (2026-07-31):** both Arducam OV9782 boards enumerate fine over USB — overhead is `/dev/video0`, wrist is `/dev/video2` (each camera also exposes a second, metadata-only node — `/dev/video1`/`/dev/video3` — not used).
@@ -95,19 +97,17 @@ Researched where the overhead camera should go, using LeRobot's own docs/blog pl
 - Sources: [LeRobot Imitation Learning docs](https://huggingface.co/docs/lerobot/il_robots) (camera config examples, "keep cameras fixed" / visibility guidance), [LeRobot Datasets blog post](https://huggingface.co/blog/lerobot-datasets) ("what makes a good dataset" — leader-arm-out-of-frame rule, two-camera recommendation, steady/stable-lighting guidance), general ALOHA/dual-arm teleop camera-design background via web search.
 - **Addendum (2026-07-31):** the wrist mount's first fit ran into a version of exactly the pitfall this research was trying to head off — the mount standoff distance wasn't designed around the lens's actual 70°(H) FOV, so the first print ended up too far from the jaws and captured mostly background instead of the grasp zone. Confirms the FOV-driven placement math mattered as much for the wrist cam as it did for the overhead tower, just easier to get wrong on a fixed-geometry mount than on a tower you can eyeball live.
 
-### Next steps (unclaimed as of last session)
-- [ ] Resolve local git corruption (see Current state above) before the next commit — this session's script changes are still uncommitted because of it
+### Next steps
+- [ ] **Start dataset recording** → policy training — next up now that the startup sequence is confirmed working end-to-end
 - [ ] Re-check wrist camera placement/aim via live preview (`software/vision/camera_preview.py`, mount is now printed and installed) and check focus at the actual close working distance
 - [ ] Wire both cameras into LeRobot camera config once wrist mount is locked
-- [ ] Re-capture `neutral.json` via `record_neutral.py` (old `neutral_follower.json`/`neutral_leader.json` are stale now — see Current state above)
-- [ ] Record a startup sequence via `set_startup_sequence.py` — `teleop.py` will fail with `FileNotFoundError` until `startup_sequence.json` exists
 - [ ] Continue claw redesign (postmortems #4 + #5) — see each entry's TODO list
 - [ ] Disable Jetson GUI (headless, reclaim ~800MB RAM)
 - [ ] Verify serial console is off on the servo UART on the Jetson
-- [ ] Start dataset recording → policy training
+
+Done since last update: ~~Resolve local git corruption~~ (2026-08-03), ~~Re-capture `neutral.json`~~ (2026-08-03, part of the post-reassembly follower recalibration), ~~Record a startup sequence via `set_startup_sequence.py`~~ (2026-08-03, confirmed working).
 
 ### Open threads / questions to pick up
-- Git corruption fix not yet decided — options are on the table (see chat), waiting on Evan's call before anything in `.git/` gets touched.
 - Once wrist mount placement is re-verified, worth a `postmortems.md` #6 entry on the FOV-blind-mount-design lesson if it feels like it cleared the leverage bar.
 
 ---
