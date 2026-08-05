@@ -29,29 +29,29 @@ Connection order:
 ssh evan0h@eka-orin.local
 ```
 
-Workspace is `/data` — `cd /data` once you're in. The NVMe SSD is mounted there and holds everything: the `hexarm` repo, the `lerobot` repo, and the `lerobot` conda env.
+Workspace is `/data` — `cd /data` once you're in. The NVMe SSD is mounted there and holds everything: the `hexarm` repo, the `lerobot` repo, and the `lerobot-env` venv.
 
 - mDNS (`eka-orin.local`) can lag — a direct IP is faster/more reliable if you have it.
 - If SSH complains `REMOTE HOST IDENTIFICATION HAS CHANGED` (happens after a reflash): `ssh-keygen -R eka-orin.local`, then retry.
 
 ### Python environments — which one, and why
 
-Two separate environments, for two separate jobs.
+Two separate environments, for two separate jobs. **Updated 2026-08-04:** the JetPack 7.2 reflash replaced the old conda env with a venv — conda shadows the system CUDA/glibc/libstdc++ that the Jetson CUDA wheels link against, causing `GLIBCXX`/CUDA resolution failures. The old `/data/miniconda3/envs/lerobot` conda env is still on disk but unused.
 
-| | conda activate `lerobot` | hexarm `.venv` |
+| | `/data/lerobot-env` | hexarm `.venv` |
 |---|---|---|
-| Location | `/data/miniconda3/envs/lerobot` | `/data/hexarm/.venv` |
-| Activate | `conda activate lerobot` | `source .venv/bin/activate` (from hexarm root) |
+| Location | `/data/lerobot-env` | `/data/hexarm/.venv` |
+| Activate | `source /data/lerobot-env/bin/activate` | `source .venv/bin/activate` (from hexarm root) |
 | Use for | anything importing `lerobot` — `teleop.py`, `software/calibration/*` | raw SDK diagnostics that don't touch LeRobot — `software/low-lvl-setup/*` (ping, baud scan, etc.) |
-| Why it's separate | LeRobot needs Python 3.12+ and a CUDA-linked torch build (cu126) — a heavy, GPU-specific dependency tree that has no business polluting anything else. Installed editable (`pip install -e ".[feetech]"`) from the `/data/lerobot` checkout. | These scripts only need `pyserial`. No reason to drag in torch/LeRobot for a ping test. A matching venv exists on the Mac side too, where LeRobot can't even install (no x86_64 torch build) — the venv is what makes those diagnostic scripts portable across machines. |
+| Why it's separate | LeRobot needs Python 3.12+ and a CUDA-linked torch build (cp312, CUDA 13.2) — a heavy, GPU-specific dependency tree that has no business polluting anything else. Installed editable (`pip install -e ".[feetech]"`) from the `/data/lerobot` checkout, on branch `jetson-jp7.2-local` (carries a patched `torch` version bound `main` doesn't have — see `context.md`). | These scripts only need `pyserial`. No reason to drag in torch/LeRobot for a ping test. A matching venv exists on the Mac side too, where LeRobot can't even install (no x86_64 torch build) — the venv is what makes those diagnostic scripts portable across machines. |
 
-Rule of thumb: script imports `lerobot` → conda. Script only talks raw serial → venv.
+Rule of thumb: script imports `lerobot` → `lerobot-env`. Script only talks raw serial → hexarm `.venv`.
 
 ### Quick sanity check after powering up
 
 ```bash
 cd /data/hexarm
-conda activate lerobot
+source /data/lerobot-env/bin/activate
 python software/low-lvl-setup/ping_one.py --id 1     # bus is alive?
 python software/control/teleop.py             # run teleop
 ```
@@ -67,9 +67,10 @@ python software/control/teleop.py             # run teleop
 
 ## 2. Where We Left Off
 
-*Last updated: 2026-08-03*
+*Last updated: 2026-08-04*
 
 ### Current state
+- **Jetson reflashed to JetPack 7.2, servo bus reconfirmed working (2026-08-04).** Needed for LeRobot's Python ≥3.12 requirement — JP6.2 only ever had cp310 CUDA torch wheels. Reflashed via Jetson ISO, NVMe (`/data`) preserved untouched. New Python env is a venv at `/data/lerobot-env` (torch 2.12.0, CUDA verified working) — conda is retired, see Python environments table above. The CH343 USB-serial bridge (Waveshare board) was flagged as a possible blocker mid-reflash but turned out to need zero driver work: it enumerates via the in-kernel `cdc_acm` driver as `/dev/ttyACM0`, same as before the reflash — confirmed by pinging all 12 servos over LeRobot's `FeetechMotorsBus`. Full details in `context.md`'s "Jetson JP7.2 reflash" write-up. **Next up: dataset recording** — both the software stack and hardware path are now verified end-to-end.
 - **Git corruption — fixed (2026-08-03).** The 6 empty/corrupt loose objects found 2026-07-31 were the local `master` tip and a few others; `origin` had them intact, so the fix was deleting the corrupt objects plus the local refs pointing at them, then re-fetching. `git fsck --full` is clean. The 2026-08-01 session's pending script changes are committed and pushed (`60ce4ac`). Full details in `context.md`'s Setup Status and session-8 log entry.
 - **Follower joint (elbow_flex, ID 3) broke, was reprinted and reassembled, and the follower arm was fully re-calibrated (2026-08-03)** — fresh `calibration_follower.json` and `neutral.json`.
 - Teleoperation is working end-to-end (both arms, single bus, 50Hz) — startup sequence changed 2026-08-01, hardened further 2026-08-03, see below.
