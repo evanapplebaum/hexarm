@@ -41,6 +41,7 @@ desktop.ini
 # VS Code
 .vscode/
 !.vscode/extensions.json
+*.code-workspace
 
 # JetBrains
 .idea/
