@@ -2,7 +2,7 @@
 
 A custom 6-DOF leader-follower robotic arm system based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation — with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework as the end goal.
 
-> **Status:** 🔧 In active development — leader-follower **teleoperation working end-to-end** (2026-06-03), calibration and angle limits finalized (2026-07-27). A broken follower joint was reprinted, reassembled, and re-calibrated (2026-08-03); the startup sequence now moves both arms to neutral before recording, plays back a 10s recorded motion, and returns to neutral, with a hold-to-move diagnostic mode for safe testing — confirmed working end-to-end (2026-08-03). Cameras are in hand and connected — the overhead camera is mounted and locked, the wrist camera's reprinted mount is installed but placement isn't re-verified yet (2026-08-01). Dataset recording starts next.
+> **Status:** 🔧 In active development — leader-follower **teleoperation working end-to-end** (2026-06-03), calibration and angle limits finalized (2026-07-27). A broken follower joint was reprinted, reassembled, and re-calibrated (2026-08-03); the startup sequence now moves both arms to neutral before recording, plays back a 10s recorded motion, and returns to neutral, with a hold-to-move diagnostic mode for safe testing — confirmed working end-to-end (2026-08-03). Cameras are in hand and connected — the overhead camera is mounted and locked, the wrist camera's reprinted mount is installed but placement isn't re-verified yet (2026-08-01). Full CAD assembly for both arms (leader + follower) finalized in Onshape (2026-08-09). Dataset recording starts next.
 
 ---
 
@@ -18,7 +18,7 @@ A custom 6-DOF leader-follower robotic arm system based on the open-source [SO-1
 | Bus interface | USB CDC-ACM on `/dev/ttyACM0` at 1 Mbps |
 | Bus topology | Single bus — both arms (follower IDs 1–6, leader IDs 7–12) |
 | Framework | [LeRobot](https://github.com/huggingface/lerobot) (`feetech` extra, editable install) |
-| CAD Tool | Onshape |
+| CAD Tool | [Onshape](https://cad.onshape.com/documents/0670dbd7fb06bb7c9bf9782d/w/e043c38067500e43503b5676/e/e17080d119308b27c44a0ee6) (public) |
 | Reach | TBD |
 | Payload | TBD |
 
@@ -26,10 +26,11 @@ A custom 6-DOF leader-follower robotic arm system based on the open-source [SO-1
 
 ## Demo
 
-<!-- Add a GIF or photo here once the arm is built -->
-<!-- ![Hexarm demo](docs/images/demo.gif) -->
+| Leader | Follower |
+|---|---|
+| ![Leader arm CAD assembly](cad/renders/leader_arm.png) | ![Follower arm CAD assembly](cad/renders/follower_arm.png) |
 
-*Photos and teleop video coming soon.*
+*CAD renders (Onshape, 2026-08-09) of the finished leader and follower arm assemblies. Real hardware photos and teleop video coming soon.*
 
 ---
 
@@ -65,6 +66,7 @@ software/
 - [Postmortems — consolidated incident log (symptom → root cause → fix → lesson)](docs/debugging/postmortems.md)
 - [Servo Comms Bring-Up — full UART/SDK debugging chronology](docs/debugging/servo-comms-debug-log.md)
 - [Robot Dog — forward planning (hardware reuse, camera architecture)](docs/robotdogplan.md)
+- [CAD Assembly (Onshape, public)](https://cad.onshape.com/documents/0670dbd7fb06bb7c9bf9782d/w/e043c38067500e43503b5676/e/e17080d119308b27c44a0ee6) — full parametric model, leader and follower arms modeled separately
 
 **Planned** (to be written as the project's notes get consolidated):
 
@@ -152,7 +154,7 @@ python software/control/teleop.py --hz 50
 
 ### M1 — CAD Complete
 - [x] CAD — individual part design
-- [ ] CAD — full assembly
+- [x] CAD — full assembly
 - [ ] Docs — hardware assembly guide
 
 ### M2 — Electronics & BOM

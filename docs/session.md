@@ -67,9 +67,10 @@ python software/control/teleop.py             # run teleop
 
 ## 2. Where We Left Off
 
-*Last updated: 2026-08-04*
+*Last updated: 2026-08-09*
 
 ### Current state
+- **Full CAD assembly finalized for both arms (leader + follower), in Onshape (2026-08-09) — [public doc](https://cad.onshape.com/documents/0670dbd7fb06bb7c9bf9782d/w/e043c38067500e43503b5676/e/e17080d119308b27c44a0ee6).** Closes out the M1 CAD milestone (physical build was already done — this was the digital model). Two build issues hit during assembly, both resolved: a free-standing base flexed/tipped under the arm's own motion, fixed by clamping the base to the table (see `postmortems.md` #6); and links bent specifically at the PLA screw points into the servo horns, fixed by thickening the links there (see `postmortems.md` #7). STEP exports for both arms' custom parts are in `cad/exports/leader/` and `cad/exports/follower/` (plus one shared `sts3215_servo_reference.step`) — trimmed down from Onshape's raw 111MB per-part export to 6.5MB by dropping STL and the 11 redundant duplicate copies of the vendor servo model. Assembly renders (`leader_arm.png`, `follower_arm.png`) are in `cad/renders/` and now show up in the README Demo section.
 - **Jetson reflashed to JetPack 7.2, servo bus reconfirmed working (2026-08-04).** Needed for LeRobot's Python ≥3.12 requirement — JP6.2 only ever had cp310 CUDA torch wheels. Reflashed via Jetson ISO, NVMe (`/data`) preserved untouched. New Python env is a venv at `/data/lerobot-env` (torch 2.12.0, CUDA verified working) — conda is retired, see Python environments table above. The CH343 USB-serial bridge (Waveshare board) was flagged as a possible blocker mid-reflash but turned out to need zero driver work: it enumerates via the in-kernel `cdc_acm` driver as `/dev/ttyACM0`, same as before the reflash — confirmed by pinging all 12 servos over LeRobot's `FeetechMotorsBus`. Full details in `context.md`'s "Jetson JP7.2 reflash" write-up. **Next up: dataset recording** — both the software stack and hardware path are now verified end-to-end.
 - **Git corruption — fixed (2026-08-03).** The 6 empty/corrupt loose objects found 2026-07-31 were the local `master` tip and a few others; `origin` had them intact, so the fix was deleting the corrupt objects plus the local refs pointing at them, then re-fetching. `git fsck --full` is clean. The 2026-08-01 session's pending script changes are committed and pushed (`60ce4ac`). Full details in `context.md`'s Setup Status and session-8 log entry.
 - **Follower joint (elbow_flex, ID 3) broke, was reprinted and reassembled, and the follower arm was fully re-calibrated (2026-08-03)** — fresh `calibration_follower.json` and `neutral.json`.
@@ -99,6 +100,8 @@ Researched where the overhead camera should go, using LeRobot's own docs/blog pl
 - **Addendum (2026-07-31):** the wrist mount's first fit ran into a version of exactly the pitfall this research was trying to head off — the mount standoff distance wasn't designed around the lens's actual 70°(H) FOV, so the first print ended up too far from the jaws and captured mostly background instead of the grasp zone. Confirms the FOV-driven placement math mattered as much for the wrist cam as it did for the overhead tower, just easier to get wrong on a fixed-geometry mount than on a tower you can eyeball live.
 
 ### Next steps
+- [x] ~~Add CAD renders (screenshots, both arms) to `cad/renders/`, then wire one into the README Demo section~~ (2026-08-09)
+- [ ] Write the hardware assembly guide (last open M1 item, README roadmap)
 - [ ] **Start dataset recording** → policy training — next up now that the startup sequence is confirmed working end-to-end
 - [ ] Re-check wrist camera placement/aim via live preview (`software/vision/camera_preview.py`, mount is now printed and installed) and check focus at the actual close working distance
 - [ ] Wire both cameras into LeRobot camera config once wrist mount is locked

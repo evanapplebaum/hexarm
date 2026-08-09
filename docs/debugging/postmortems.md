@@ -101,4 +101,36 @@ Consolidated log of hardware/software incidents encountered while building hexar
 
 ---
 
+## 6. Arm Base Instability — Bending/Tipping Under Load
+
+**Dates:** during CAD/build assembly, resolved by 2026-08-09 · **Severity:** Blocking (assembly) · **Status:** ✅ Resolved
+
+**Symptom:** The free-standing arm base bent and the arm tipped/fell over during assembly and testing.
+
+**Investigation:** The base had been sized to support the arm's static weight while sitting still, not the tipping moment generated once the arm moves — the shoulder/base joint applies a lever-arm load that a free-standing footprint has to resist entirely through its own stiffness and mass.
+
+**Root cause:** Static support and dynamic tip-resistance are different requirements — a base wide/heavy enough to hold the arm upright at rest can still flex or tip once the arm swings its weight around, because that introduces a moment the base's footprint alone wasn't sized against.
+
+**Fix:** Made the base clampable to the table (rather than relying on the base's own footprint and mass for stability), converting the table itself into part of the base's effective support.
+
+**Lesson:** For a free-standing multi-DOF arm, size (or mount) the base against the worst-case *tipping moment* the arm's motion can generate, not just its static resting weight. A clamp/fixture to an external rigid surface is a simpler fix than iterating base geometry/mass if the application allows a fixed mounting point.
+
+---
+
+## 7. Servo-Mount Joint Bending — PLA Screw Points Undersized
+
+**Dates:** during CAD/build assembly, resolved by 2026-08-09 · **Severity:** Moderate · **Status:** ✅ Resolved
+
+**Symptom:** Printed links bent under load specifically at the joints, at the point where the PLA part screws into the servo horn — other, unattached regions of the same links were fine.
+
+**Investigation:** The bending was localized to the fastener bosses at each servo attachment, not distributed along the link, pointing at the screw point itself rather than the part's general cross-section as the weak spot.
+
+**Root cause:** The screw-in boss where a link bolts to a servo horn is a stress concentration — a smaller, thinner feature than the rest of the link, carrying the full joint load through a small attachment area. Sizing wall thickness for the link overall didn't account for this local feature needing its own margin.
+
+**Fix:** Thickened the links specifically at the servo screw-in points (not a uniform thickness increase across the whole part).
+
+**Lesson:** Fastener attachment points on a printed part are a distinct sizing problem from the part's general wall thickness — treat them as their own local stress concentration and reinforce there directly, rather than assuming a part that's strong everywhere else is automatically strong at its mounting holes too.
+
+---
+
 *Have a new issue in progress? Add a new `## N. Title` section above using the same template — even a partially-solved entry (Symptom + Investigation so far) is useful; fill in Root Cause / Fix / Lesson once resolved.*

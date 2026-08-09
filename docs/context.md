@@ -63,6 +63,7 @@ GitHub: `github.com/evanapplebaum/hexarm`
 - **Design basis:** SO-100 (open-source, 3D-printed frame)
 - **Configuration:** Leader arm + follower arm (6 DOF each)
 - **Actuators:** 12 × FEETECH STS3215 smart servos (6 per arm)
+- **CAD:** Full assembly (both arms) finalized in Onshape (2026-08-09) — [public document](https://cad.onshape.com/documents/0670dbd7fb06bb7c9bf9782d/w/e043c38067500e43503b5676/e/e17080d119308b27c44a0ee6). Leader and follower are modeled as two separate arm assemblies within the doc, not a single mirrored/derived assembly. Two build lessons surfaced during assembly and were resolved — see `docs/debugging/postmortems.md` #6 (base stability) and #7 (servo-mount joint strength). STEP exports of both arms' custom parts added to `cad/exports/`, renders added to `cad/renders/` (both 2026-08-09) — see Repository Structure below for what's in/out.
 
 ### Servos — FEETECH STS3215
 - **Control:** Half-duplex TTL serial bus (NOT PWM)
@@ -134,11 +135,14 @@ hexarm/
 │       ├── ST3215-general-manual.pdf
 │       ├── Servo-bus-schematic.pdf
 │       └── sts3215_memory_table.xlsx
-├── cad/                                ← (empty scaffold — Onshape parts/exports go here)
-│   ├── assembly/
-│   ├── exports/
-│   ├── parts/
-│   └── renders/
+├── cad/                                ← live CAD doc linked in Hardware → Arm Structure above (Onshape, cloud-hosted — no native files stored here)
+│   ├── assembly/                       ← (empty scaffold, unused)
+│   ├── exports/                        ← STEP exports, added 2026-08-09
+│   │   ├── leader/                     ← leader arm's custom-designed parts only (base, crank, link1-4, wheel)
+│   │   ├── follower/                   ← follower arm's custom-designed parts only (base, claw, link1-5, pinion, racks, part18, Arducam mount)
+│   │   └── sts3215_servo_reference.step ← ONE copy of the vendor STS3215 servo model (same part instanced 6×/arm in Onshape; only one kept here, not 12 near-duplicates)
+│   ├── parts/                          ← (empty scaffold, unused)
+│   └── renders/                        ← leader_arm.png, follower_arm.png — isometric assembly screenshots, used in README Demo section (added 2026-08-09)
 ├── electronics/
 │   ├── bom/                            ← (empty scaffold)
 │   └── schematics/
@@ -345,6 +349,10 @@ End-to-end SDK path has worked since 2026-05-25 (on the Pi) and now runs on the 
 
 | Task | Status |
 |---|---|
+| **CAD / Mechanical** | |
+| CAD — individual part design | ✅ Done |
+| CAD — full assembly (both arms, leader + follower) | ✅ Done (2026-08-09) — [Onshape doc](https://cad.onshape.com/documents/0670dbd7fb06bb7c9bf9782d/w/e043c38067500e43503b5676/e/e17080d119308b27c44a0ee6). STEP exports of custom parts in `cad/exports/` (2026-08-09). Renders pending. |
+| Docs — hardware assembly guide | ⏳ Todo |
 | **Compute** | |
 | Jetson Orin Nano Super — JetPack 6.2 flash | ✅ Done (2026-05-26), superseded — see JP7.2 reflash below |
 | Jetson Orin Nano Super — JetPack 7.2 reflash (R39.2, Ubuntu 24.04, CUDA 13.2) | ✅ Done (2026-08-04) — via Jetson ISO, microSD target, NVMe/`/data` preserved untouched. Reason: LeRobot needs Python ≥3.12; only JP7.2 has cp312 CUDA torch wheels for Jetson. Full write-up below. |
@@ -485,6 +493,8 @@ This resolves to `software/scservo_sdk/`. These scripts run standalone (not unde
 - FEETECH status/error byte bits are distinct and independently latch-and-report: `OverEle` (bit 3, overcurrent) vs `Overload` (bit 5) are different conditions. The servo's own protection firmware can auto-disable torque on just the affected motor when one trips — independent of what the host's `Torque_Enable` writes say — which is why only one servo can end up detorqued after a stall while the rest of the bus stays enabled.
 - Boundary-inclusive vs. exclusive tolerance checks matter operationally, not just in theory: a strict `<` against a threshold a real sensor value can land exactly on (not just get arbitrarily close to) causes a "hang" that's actually just a comparison that can never be satisfied — the joint isn't stuck, the check is unsatisfiable. `<=` (or widening the tolerance) fixes it.
 - Terminal-based "hold key to move" (dead-man's switch) control has no true key-up event over a raw SSH terminal — unlike a GUI or direct HID access, there's no way to know a key was *released*, only that bytes stopped arriving. "Held" has to be inferred from the OS's keyboard auto-repeat cadence (treat recent-enough as still-down), which is a real constraint on responsiveness, not just an implementation detail.
+- Free-standing multi-DOF arm bases have to resist the *tipping moment* the arm's own weight and motion generate, not just hold static weight — a base sized only for support flexed and let the arm tip over during assembly/testing. Fixed by clamping the base to the table rather than relying on the base's own footprint/mass for stability. See `docs/debugging/postmortems.md` #6.
+- PLA screw-in mounting bosses (where a printed link bolts to a servo horn) are a stress concentration distinct from the part's general wall thickness — links that were adequately thick everywhere else still bent specifically at the servo attachment point, requiring local reinforcement there rather than a uniform thickness increase. See `docs/debugging/postmortems.md` #7.
 
 ---
 
@@ -629,7 +639,9 @@ LeRobot 0.6.1's `pyproject.toml` pins `torch>=2.7,<2.12.0`, which excludes the o
 
 **Known follow-ups, not yet done:** Super Mode may be unavailable — NVIDIA documents a JP7.2.0 bug where installing via Jetson ISO doesn't configure the Orin Nano dev kit for Super Mode (currently on 25W, MAXN SUPER missing); expected fixed in 7.2.1. 252+ pending apt updates deliberately not applied (blanket `apt upgrade` on Tegra risks the vendor kernel). `torchcodec` not yet installed/pinned for the video-dataset-loading path — its own source notes 0.12 is the build meant for torch 2.12, current LeRobot pin is `<0.12.0`; revisit when dataset loading starts.
 
-*Last updated: 2026-08-04 (session 9 — reflashed Jetson from JetPack 6.2 to JetPack 7.2 to get Python 3.12 + CUDA torch for LeRobot; full write-up above. Servo bus reconfirmed working end-to-end post-reflash with zero driver changes needed. Next up: dataset recording, now that both the software stack and hardware path are verified.)*
+*Last updated: 2026-08-09 (session 10 — full CAD assembly finalized for both arms, leader and follower, in Onshape (public doc linked in Hardware → Arm Structure), closing out the M1 CAD milestone; two build issues surfaced during assembly and were resolved — a free-standing base flexed and let the arm tip over, fixed by making the base clamp to the table instead of relying on its own footprint/mass (postmortem #6); and printed links bent specifically where PLA screws into the servo horns, fixed by locally thickening the links at those screw points rather than uniformly (postmortem #7). STEP exports added to `cad/exports/` — trimmed from Onshape's raw 111MB per-part export (66 STEP+STL files, 93MB of which was the same vendor servo model duplicated 12×) down to 6.5MB by keeping STEP only for each arm's custom-designed parts plus a single shared servo reference file; STL and the redundant per-instance servo/duplicate files were dropped as they added no unique design information. Assembly renders (`leader_arm.png`, `follower_arm.png`) added to `cad/renders/` and wired into the README Demo section. Next M1 item: hardware assembly guide.)*
+
+*Previously: 2026-08-04 (session 9 — reflashed Jetson from JetPack 6.2 to JetPack 7.2 to get Python 3.12 + CUDA torch for LeRobot; full write-up above. Servo bus reconfirmed working end-to-end post-reflash with zero driver changes needed. Next up: dataset recording, now that both the software stack and hardware path are verified.)*
 
 *Previously: 2026-08-03 (session 8 — fixed the local git corruption open since 2026-07-31: deleted the 6 corrupt loose objects and the local refs pointing at the corrupt commit, re-fetched from `origin` to recover it cleanly, then committed and pushed the 2026-08-01 session's pending script changes (`60ce4ac`); a broken follower joint (elbow_flex, ID 3) was reprinted and reassembled, then the follower arm was fully re-calibrated and `neutral.json` recaptured — see Setup Status; hit an `OverEle` (overcurrent) fault on that same joint during `go_neutral.py` after recalibration, apparently from a large excursion pressing into a wall (a servo in position mode keeps driving toward `Goal_Position` under torque regardless of whether the host script's polling loop has timed out, so sustained contact — not a momentary spike — trips the fault and the servo's own protection firmware auto-disables its torque; see Concepts Covered); ruled out a reversed calibration range (`record_ranges_of_motion()` does a true running `min()`/`max()`, structurally can't swap them) and gravity sag (confirmed by hand) as causes, resolved by power-cycling the servo bus, not reproduced since; extended `go_neutral.py` with an `at_neutral()` pre-check (skip the move entirely if already close enough) and a `--diagnostic` hold-to-move dead-man's-switch mode for safely testing suspect moves by hand; found and fixed a real bug in `go_neutral.py`'s arrival check — strict `<` against `POSITION_TOLERANCE` meant a joint sitting exactly on the boundary (observed: `elbow_flex` at `87.5` vs. target `87.0`, a diff of exactly `0.5`) would never register as arrived and would hang to the full timeout; changed to `<=` and widened the tolerance 0.5 → 1.0; rewrote `set_startup_sequence.py` to drive both arms to neutral first (skippable via `at_neutral()`) and disable torque on the leader only, so the recorded trajectory starts from the same pose `run_startup_sequence.py` replays it from instead of an arbitrary one; extended the recording window 5s → 10s; confirmed `run_startup_sequence.py` now runs end-to-end (neutral → recorded motion → neutral) without issue. Dataset recording is up next.)*
 
