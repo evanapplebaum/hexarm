@@ -70,7 +70,7 @@ def safe_enable_torque(bus: FeetechMotorsBus) -> None:
     """Set Goal_Position = Present_Position for all joints before enabling."""
     positions = bus.sync_read("Present_Position", normalize=False)
     for name, pos in positions.items():
-        bus.write("Goal_Position", name, int(float(pos)), normalize=False)
+        bus.write("Goal_Position", name, int(float(pos)), normalize=False, num_retry=3)
     bus.enable_torque()
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -184,9 +184,9 @@ def main() -> None:
                     if not torque_on:
                         safe_enable_torque(bus)
                         torque_on = True
-                    bus.write("Maximum_Velocity_Limit", name, SLOW_VELOCITY, normalize=False)
-                    bus.write("Acceleration", name, SLOW_ACCEL,    normalize=False)
-                    bus.write("Goal_Position", name, target, normalize=True)
+                    bus.write("Maximum_Velocity_Limit", name, SLOW_VELOCITY, normalize=False, num_retry=3)
+                    bus.write("Acceleration", name, SLOW_ACCEL,    normalize=False, num_retry=3)
+                    bus.write("Goal_Position", name, target, normalize=True, num_retry=3)
                 print(f"  → Moving {name} to {target:.1f}  (velocity={SLOW_VELOCITY} counts/s)")
 
             # Brief pause so user can read feedback, then resume display

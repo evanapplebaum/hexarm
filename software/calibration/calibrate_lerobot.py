@@ -95,7 +95,7 @@ def safe_enable_torque(bus: FeetechMotorsBus) -> None:
     Prevents snapping to a stale goal from a previous run."""
     positions = bus.sync_read("Present_Position", normalize=False)
     for name, pos in positions.items():
-        bus.write("Goal_Position", name, int(float(pos)), normalize=False)
+        bus.write("Goal_Position", name, int(float(pos)), normalize=False, num_retry=3)
     bus.enable_torque()
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -148,7 +148,7 @@ def main() -> None:
     # reflect raw encoder values (0–4095) during the homing step.
     print("\nStep 2: Clearing stale homing offsets...")
     for name in motors:
-        bus.write("Homing_Offset", name, 0, normalize=False)
+        bus.write("Homing_Offset", name, 0, normalize=False, num_retry=3)
     print("  Done.")
 
     # ── Step 3: Per-joint calibration ─────────────────────────────────────

@@ -39,6 +39,14 @@ Usage (from hexarm root, conda lerobot env):
       --episodes 5 \
       --nostartseq
 
+To Resume from a partially completed dataset (in this example, 3 sessions were already recorded - 47 remaining)
+python software/control/record_dataset.py \
+    --repo-id hexarm/pick_and_place \
+    --task "Pick up the block and place it in the bin" \
+    --episodes 47 \
+    --resume \
+    --nostartseq
+
 Controls (raw SSH terminal, same convention as go_neutral.py --diagnostic):
   ENTER — finish this episode (saves it), then reset and continue
   r     — redo: discard this episode, record it again from the same start
@@ -54,6 +62,7 @@ Prerequisites:
 import argparse
 import json
 import select
+import shutil
 import sys
 import termios
 import time
@@ -66,12 +75,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
 from software.calibration.go_neutral import go_neutral, safe_enable_torque  # noqa: E402
 from software.calibration.run_startup_sequence import run_startup_sequence  # noqa: E402
 
+import cv2
+
 from lerobot.cameras.opencv import OpenCVCamera, OpenCVCameraConfig
 from lerobot.datasets import LeRobotDataset
 from lerobot.datasets.video_utils import VideoEncodingManager
 from lerobot.motors.feetech import FeetechMotorsBus
 from lerobot.motors.motors_bus import Motor, MotorCalibration, MotorNormMode
-from lerobot.utils.constants import ACTION, OBS_STR
+from lerobot.utils.constants import ACTION, HF_LEROBOT_HOME, OBS_STR
 from lerobot.utils.feature_utils import build_dataset_frame, combine_feature_dicts, hw_to_dataset_features
 
 # ── Constants ─────────────────────────────────────────────────────────────────
@@ -100,6 +111,26 @@ DEFAULT_OVERHEAD_INDEX = 0
 DEFAULT_WRIST_INDEX    = 2
 CAMERA_WIDTH  = 1280
 CAMERA_HEIGHT = 800
+
+# Frames are captured at the camera's native resolution (confirmed exact —
+# requesting a smaller size like 640x400 directly gets silently rounded to
+# 640x480 by the driver, a different aspect ratio (4:3 vs native 8:5) that
+# would crop/distort relative to the already-locked camera framing), then
+# downscaled in software before being written. Measured ~3.4x faster PNG
+# writes + video encoding at this size vs. full 1280x800, with the same
+# aspect ratio preserved.
+RECORD_WIDTH  = 640
+RECORD_HEIGHT = 400
+
+def _print_recording_banner() -> None:
+    """Full-width solid-color block so 'recording started' is readable from
+    across the room, not just at the keyboard — plain text is too small to
+    make out at a distance, but a wall of color is."""
+    width = shutil.get_terminal_size(fallback=(60, 20)).columns
+    bar = "\033[1;97;42m" + " " * width + "\033[0m"
+    label = "\033[1;97;42m" + "RECORDING — GO".center(width) + "\033[0m"
+    print(f"\n{bar}\n{bar}\n{label}\n{bar}\n{bar}\n")
+
 
 # ── Raw-terminal key polling (same convention as go_neutral.py --diagnostic) ──
 
@@ -167,7 +198,7 @@ def build_dataset_features(cameras: dict[str, OpenCVCamera]) -> dict:
     expects from a Robot's observation_features/action_features."""
     obs_hw: dict[str, type | tuple] = {f"{joint}.pos": float for joint in JOINT_NAMES}
     for name in cameras:
-        obs_hw[name] = (CAMERA_HEIGHT, CAMERA_WIDTH, 3)
+        obs_hw[name] = (RECORD_HEIGHT, RECORD_WIDTH, 3)
     action_hw: dict[str, type] = {f"{joint}.pos": float for joint in JOINT_NAMES}
 
     return combine_feature_dicts(
@@ -188,6 +219,7 @@ def record_episode(
     """
     period = 1 / fps
     print("Recording... ENTER to finish+save, 'r' to redo, 'q' or Ctrl-C to abort+stop.")
+    _print_recording_banner()
 
     with _RawTerminal():
         while True:
@@ -213,7 +245,8 @@ def record_episode(
 
             obs_values = {f"{j}.pos": float(follower_pos[f"follower_{j}"]) for j in JOINT_NAMES}
             for name, cam in cameras.items():
-                obs_values[name] = cam.read_latest()
+                frame = cam.read_latest()
+                obs_values[name] = cv2.resize(frame, (RECORD_WIDTH, RECORD_HEIGHT), interpolation=cv2.INTER_AREA)
             action_values = {f"{j}.pos": float(leader_pos[f"leader_{j}"]) for j in JOINT_NAMES}
 
             observation_frame = build_dataset_frame(dataset.features, obs_values, prefix=OBS_STR)
@@ -263,6 +296,14 @@ def main() -> None:
 
     cameras = connect_cameras(args.overhead_index, args.wrist_index, args.fps)
 
+    # LeRobot's own AsyncImageWriter guidance is 4 threads *per camera*, not
+    # 4 total shared across all cameras — undersizing this leaves a growing
+    # backlog of unwritten PNGs queued during recording (queue.put() never
+    # blocks), which then stalls save_episode()'s queue.join() at episode end
+    # for however long the backlog takes to drain, with zero console feedback
+    # in the meantime.
+    image_writer_threads = 4 * len(cameras)
+
     # Everything below can fail mid-setup (e.g. a stale dataset dir, a bus
     # fault) — once cameras/bus are connected, cleanup must run regardless,
     # or their background threads get torn down mid native call on the way
@@ -270,7 +311,11 @@ def main() -> None:
     dataset = None
     try:
         if args.resume:
-            dataset = LeRobotDataset.resume(repo_id=args.repo_id, image_writer_threads=4)
+            dataset = LeRobotDataset.resume(
+                repo_id=args.repo_id,
+                root=HF_LEROBOT_HOME / args.repo_id,
+                image_writer_threads=image_writer_threads,
+            )
             print(f"Resuming dataset: {dataset.root} ({dataset.num_episodes} episode(s) recorded so far)")
         else:
             dataset = LeRobotDataset.create(
@@ -278,7 +323,7 @@ def main() -> None:
                 fps=args.fps,
                 features=build_dataset_features(cameras),
                 robot_type="hexarm",
-                image_writer_threads=4,
+                image_writer_threads=image_writer_threads,
             )
             print(f"Dataset created: {dataset.root}")
 
@@ -301,6 +346,7 @@ def main() -> None:
                 print(f"\n=== Episode {recorded + 1}/{args.episodes} this session "
                       f"(dataset total after this: {dataset.num_episodes + 1}) ===")
                 outcome = record_episode(bus, cameras, dataset, args.task, args.fps)
+                print("Flushing image writer queue... (can take several seconds — do not press keys again)")
 
                 if outcome == "redo":
                     dataset.clear_episode_buffer()
@@ -320,6 +366,11 @@ def main() -> None:
 
                 if recorded < args.episodes:
                     reset_environment(bus, neutral_all, args.reset_seconds)
+
+            if recorded == args.episodes:
+                print("\nAll episodes recorded — returning both arms to neutral...")
+                safe_enable_torque(bus)
+                go_neutral(bus, neutral_all)
     finally:
         for cam in cameras.values():
             cam.disconnect()

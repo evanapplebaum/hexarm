@@ -126,7 +126,7 @@ def safe_enable_torque(bus: FeetechMotorsBus) -> None:
     Prevents servos from snapping to a stale goal on enable."""
     positions = bus.sync_read("Present_Position", normalize=False)
     for name, pos in positions.items():
-        bus.write("Goal_Position", name, int(float(pos)), normalize=False)
+        bus.write("Goal_Position", name, int(float(pos)), normalize=False, num_retry=3)
     bus.enable_torque()
 
 
@@ -153,8 +153,8 @@ def go_neutral(
 
     # Set motion profile on all joints
     for name in active_joints:
-        bus.write("Maximum_Velocity_Limit", name, velocity,     normalize=False)
-        bus.write("Acceleration",           name, acceleration, normalize=False)
+        bus.write("Maximum_Velocity_Limit", name, velocity,     normalize=False, num_retry=3)
+        bus.write("Acceleration",           name, acceleration, normalize=False, num_retry=3)
 
     raw_term = _RawTerminal() if diagnostic else None
     held_until = 0.0
@@ -222,8 +222,8 @@ def go_neutral(
 
     # Restore motion profile to 0 (= no limit) so other scripts are unaffected
     for name in active_joints:
-        bus.write("Maximum_Velocity_Limit", name, 0, normalize=False)
-        bus.write("Acceleration",           name, 0, normalize=False)
+        bus.write("Maximum_Velocity_Limit", name, 0, normalize=False, num_retry=3)
+        bus.write("Acceleration",           name, 0, normalize=False, num_retry=3)
 
     print(f"Done ({elapsed:.2f}s). Final positions:")
     final = bus.sync_read("Present_Position", normalize=True)

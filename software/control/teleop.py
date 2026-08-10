@@ -112,8 +112,8 @@ def safe_enable_torque(bus: FeetechMotorsBus, motor_names: list[str]) -> None:
     before enabling torque. This freezes the motor in place on engage.
     """
     for name in motor_names:
-        pos = bus.read("Present_Position", name, normalize=False)
-        bus.write("Goal_Position", name, int(float(pos)), normalize=False)
+        pos = bus.read("Present_Position", name, normalize=False, num_retry=3)
+        bus.write("Goal_Position", name, int(float(pos)), normalize=False, num_retry=3)
     bus.enable_torque(motors=motor_names)
 
 

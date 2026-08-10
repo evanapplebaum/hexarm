@@ -93,7 +93,7 @@ def safe_enable_torque(bus: FeetechMotorsBus) -> None:
     Prevents servos from snapping to a stale goal on enable."""
     positions = bus.sync_read("Present_Position", normalize=False)
     for name, pos in positions.items():
-        bus.write("Goal_Position", name, int(float(pos)), normalize=False)
+        bus.write("Goal_Position", name, int(float(pos)), normalize=False, num_retry=3)
     bus.enable_torque()
 
 
