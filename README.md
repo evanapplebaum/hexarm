@@ -2,7 +2,7 @@
 
 A custom 6-DOF leader-follower robotic arm system based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation — with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework as the end goal.
 
-> **Status:** 🔧 In active development — leader-follower **teleoperation working end-to-end** (2026-06-03), calibration and angle limits finalized (2026-07-27). A broken follower joint was reprinted, reassembled, and re-calibrated (2026-08-03); the startup sequence now moves both arms to neutral before recording, plays back a 10s recorded motion, and returns to neutral, with a hold-to-move diagnostic mode for safe testing — confirmed working end-to-end (2026-08-03). Cameras are in hand and connected — the overhead camera is mounted and locked, the wrist camera's reprinted mount is installed but placement isn't re-verified yet (2026-08-01). Full CAD assembly for both arms (leader + follower) finalized in Onshape (2026-08-09). Dataset recording starts next.
+> **Status:** 🔧 In active development — leader-follower **teleoperation working end-to-end** (2026-06-03), calibration and angle limits finalized (2026-07-27). A broken follower joint was reprinted, reassembled, and re-calibrated (2026-08-03); the startup sequence now moves both arms to neutral before recording, plays back a 10s recorded motion, and returns to neutral, with a hold-to-move diagnostic mode for safe testing — confirmed working end-to-end (2026-08-03). Cameras are in hand and connected — the overhead camera is mounted and locked, the wrist camera's reprinted mount is installed and its placement is confirmed good (2026-08-05). Full CAD assembly for both arms (leader + follower) finalized in Onshape (2026-08-09). Dataset recording starts next.
 
 ---
 
@@ -144,7 +144,7 @@ python software/control/teleop.py --hz 50
 | Leader-follower teleoperation (`teleop.py`) | ✅ Done (2026-06-03) |
 | Encoder wrap-around fix — code rewrite | ✅ Done (2026-06-02) |
 | Angle limits flashed to servo EPROM | ✅ Done (2026-07-27) |
-| Cameras (wrist + overhead, 2× Arducam OV9782 global shutter) | 🔧 In hand and connected — overhead mounted & locked (2026-07-31), wrist mount reprinted & installed but placement not yet re-verified (2026-08-01) |
+| Cameras (wrist + overhead, 2× Arducam OV9782 global shutter) | ✅ Done — overhead mounted & locked (2026-07-31), wrist mount reprinted, installed, and placement confirmed (2026-08-05) |
 | Dataset recording | 🔧 Starting next |
 | Policy training | ⏳ Todo |
 

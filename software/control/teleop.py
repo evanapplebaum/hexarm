@@ -25,7 +25,7 @@ Prerequisites:
 
 Usage (from hexarm root, conda lerobot env):
   conda activate lerobot
-  python software/control/teleop.py [--port /dev/ttyACM0] [--hz 20]
+  python software/control/teleop.py
 
 Ctrl-C to stop. Torque is disabled on exit.
 """

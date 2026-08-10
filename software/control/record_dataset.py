@@ -19,12 +19,25 @@ control (pynput) also expects a display/event backend, which doesn't
 work headless over SSH; this reuses the raw-termios SSH key reading
 already established in go_neutral.py's --diagnostic mode instead.
 
+Parameters:
+  --repo-id         Required. Dataset identifier, e.g. hexarm/pick_and_place.
+  --task            Required. Single-sentence task description, stored per-frame.
+  --episodes        Number of episodes to record this session. Default: 50.
+  --fps             Control-loop / recording rate in Hz. Default: 30.
+  --reset-seconds   Pause between episodes to reposition the object. Default: 10.
+  --port            Serial port for the shared servo bus. Default: /dev/ttyACM0.
+  --overhead-index  /dev/videoN index for the overhead camera. Default: 0.
+  --wrist-index     /dev/videoN index for the wrist camera. Default: 2.
+  --nostartseq      Skip the recorded startup-sequence choreography; go straight to neutral.
+  --resume          Add episodes to an existing local dataset at --repo-id instead of creating a new one.
+
 Usage (from hexarm root, conda lerobot env):
-  conda activate lerobot
+  source /data/lerobot-env/bin/activate
   python software/control/record_dataset.py \
       --repo-id hexarm/pick_and_place \
       --task "Pick up the block and place it in the bin" \
-      --episodes 5
+      --episodes 5 \
+      --nostartseq
 
 Controls (raw SSH terminal, same convention as go_neutral.py --diagnostic):
   ENTER — finish this episode (saves it), then reset and continue
