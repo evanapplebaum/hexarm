@@ -213,6 +213,7 @@ def record_episode(
     dataset: LeRobotDataset,
     task: str,
     fps: int,
+    record_sizes: dict[str, tuple[int, int]],
 ) -> str:
     """Tick the single-bus teleop loop, writing one dataset frame per tick,
     until the operator presses ENTER, 'r', or 'q'/Ctrl-C. Returns 'save'/'redo'/'stop'.
@@ -246,7 +247,7 @@ def record_episode(
             obs_values = {f"{j}.pos": float(follower_pos[f"follower_{j}"]) for j in JOINT_NAMES}
             for name, cam in cameras.items():
                 frame = cam.read_latest()
-                obs_values[name] = cv2.resize(frame, (RECORD_WIDTH, RECORD_HEIGHT), interpolation=cv2.INTER_AREA)
+                obs_values[name] = cv2.resize(frame, record_sizes[name], interpolation=cv2.INTER_AREA)
             action_values = {f"{j}.pos": float(leader_pos[f"leader_{j}"]) for j in JOINT_NAMES}
 
             observation_frame = build_dataset_frame(dataset.features, obs_values, prefix=OBS_STR)
@@ -327,6 +328,24 @@ def main() -> None:
             )
             print(f"Dataset created: {dataset.root}")
 
+        # Derived from the dataset's own declared feature shape rather than
+        # the RECORD_WIDTH/RECORD_HEIGHT constants directly — a resumed
+        # dataset may already have episodes locked in at a different
+        # resolution (e.g. one created before this recording size existed),
+        # and writing frames at a shape that doesn't match the dataset's
+        # schema silently produces uncommitted "phantom" episodes: LeRobot's
+        # writer advances its episode counter before the mismatched
+        # data/video actually fails to merge, corrupting meta/info.json's
+        # totals without saving anything. cv2.resize wants (width, height);
+        # feature shape is (height, width, channels).
+        record_sizes = {
+            name: (
+                dataset.features[f"{OBS_STR}.images.{name}"]["shape"][1],
+                dataset.features[f"{OBS_STR}.images.{name}"]["shape"][0],
+            )
+            for name in cameras
+        }
+
         # Same startup ritual as teleop.py: both arms enabled -> neutral -> (optionally)
         # recorded sequence -> neutral, then leader goes free for the operator.
         safe_enable_torque(bus)
@@ -345,7 +364,7 @@ def main() -> None:
             while recorded < args.episodes:
                 print(f"\n=== Episode {recorded + 1}/{args.episodes} this session "
                       f"(dataset total after this: {dataset.num_episodes + 1}) ===")
-                outcome = record_episode(bus, cameras, dataset, args.task, args.fps)
+                outcome = record_episode(bus, cameras, dataset, args.task, args.fps, record_sizes)
                 print("Flushing image writer queue... (can take several seconds — do not press keys again)")
 
                 if outcome == "redo":
