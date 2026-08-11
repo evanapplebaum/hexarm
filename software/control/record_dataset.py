@@ -104,7 +104,7 @@ DEFAULT_PORT = "/dev/ttyACM0"
 
 DEFAULT_FPS            = 30   # matches AGENT_GUIDE's recommended dataset default
 DEFAULT_EPISODES       = 50   # "start small" — see AGENT_GUIDE §5.5
-DEFAULT_RESET_SECONDS  = 10
+DEFAULT_RESET_SECONDS  = 5
 
 # Device indices match camera_preview.py's default `--indices 0 2`.
 DEFAULT_OVERHEAD_INDEX = 0

@@ -133,4 +133,20 @@ Consolidated log of hardware/software incidents encountered while building hexar
 
 ---
 
+## 8. Phantom Episodes — Silent Data Loss From a Resolution Mismatch on `--resume`
+
+**Dates:** 2026-08-10 · **Severity:** High (unrecoverable data loss) · **Status:** ✅ Resolved
+
+**Symptom:** After a `record_dataset.py --resume` session that appeared to complete normally (no errors, no crash), `meta/info.json` reported `total_episodes=5` / `total_frames=3447`, but the actual per-episode data — `data/chunk-000/file-000.parquet`, the video files, and `meta/episodes/...parquet` — only ever had 3 real episodes / 2268 frames. Two full episodes' worth of counters existed with no data behind them.
+
+**Investigation:** Confirmed via direct inspection that `info.json`'s totals didn't match row counts in the actual parquet/video files, then cross-checked file mtimes: `info.json` had been touched at 15:28:40, but the real data files' last-touched time was 14:45:55 — matching only the original recording session, not the later `--resume` session that supposedly added 2 more episodes. That pinned the corruption to something in the resume path specifically, not the original recording.
+
+**Root cause:** Earlier the same session, `record_dataset.py` had been changed to downscale newly-recorded frames to 640×400 (for faster video encoding — see the video-encode speed investigation) via unconditional `RECORD_WIDTH`/`RECORD_HEIGHT` constants. That change only accounted for *new* datasets. `hexarm/pick_and_place` had already been created earlier at the camera's native 1280×800, so its on-disk schema (`dataset.features[...]["shape"]`) was permanently locked at 1280×800. Resuming it with the new code wrote 640×400 frames into an 1280×800-schema dataset. LeRobot's dataset writer advances its internal episode counter *before* the shape-mismatched image/video data actually fails to merge — so the failure was silent from the operator's side: no exception, no warning, just counters that quietly went wrong. By the time this was discovered, the raw per-tick frames for both phantom episodes had already been cleaned up as part of the (apparently successful) save flow, so the underlying recordings were gone — not just mislabeled.
+
+**Fix:** Replaced the unconditional `RECORD_WIDTH`/`RECORD_HEIGHT` constants in the recording tick loop with a `record_sizes` dict derived dynamically from the dataset's *own* declared feature shape right after `create()`/`resume()` (`dataset.features[f"observation.images.{name}"]["shape"]`), so recording always matches whatever resolution that specific dataset is actually locked at — 1280×800 for an old dataset, 640×400 for a freshly-created one — instead of assuming one fixed resolution applies everywhere. `meta/info.json`'s counters were hand-repaired back to the true state (5→3 episodes, 3447→2268 frames), and the orphaned frame directories for the two phantom episodes were deleted. Going forward, datasets that need the faster resolution are created fresh under a new `repo_id` (e.g. `pick_and_place_v2`) rather than resized in place — resolution is schema-locked for the lifetime of a dataset, there's no in-place "upgrade."
+
+**Lesson:** Any per-recording constant that a script assumes applies globally (resolution, feature shape, etc.) needs to be checked against the specific artifact being *resumed*, not just the artifact being *created* — `create()` and `resume()` are not symmetric, and a fix validated against "start fresh" doesn't automatically hold for "continue existing." Also: a library that advances a counter before validating the data behind it turns a hard failure into a silent one — when writing anything that resembles "reserve a slot, then fill it," validate before incrementing, not after, or a downstream failure corrupts bookkeeping instead of raising.
+
+---
+
 *Have a new issue in progress? Add a new `## N. Title` section above using the same template — even a partially-solved entry (Symptom + Investigation so far) is useful; fill in Root Cause / Fix / Lesson once resolved.*
