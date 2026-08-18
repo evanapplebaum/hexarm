@@ -33,6 +33,14 @@ Parameters:
   --port            Serial port for the follower's servo bus. Default: /dev/ttyACM0.
   --overhead-index  /dev/videoN index for the overhead camera. Default: 0.
   --wrist-index     /dev/videoN index for the wrist camera. Default: 2.
+  --velocity        Max joint speed in counts/s for the policy loop. Default: 50
+                     (~8.8°/s, same as go_neutral.py's default), or 15 (~2.6°/s)
+                     with --slowmo.
+  --acceleration    Ramp rate in counts/s² for the policy loop. Default: 10, or 3
+                     with --slowmo.
+  --slowmo          Cap velocity/acceleration to the conservative values above —
+                     for watching an untested policy's first moves. Explicit
+                     --velocity/--acceleration override this if both are given.
 
 Usage (from hexarm root):
   source /data/lerobot-env/bin/activate
@@ -100,6 +108,16 @@ DEFAULT_TASK        = "Pick up the block and place it in the bin"
 DATASET_REPO_ID      = "hexarm/pick_and_place_v2"
 DATASET_ROOT          = "/data/lerobot_home/hexarm/pick_and_place_v2"
 
+# Motion profile for the policy loop itself — separate from go_neutral()'s own
+# internal defaults, which it explicitly resets to 0 (= unlimited) after every
+# move it makes. Without setting these again afterward, the policy would drive
+# the servos at full uncapped speed with no governor at all.
+# DEFAULT_VELOCITY/DEFAULT_ACCELERATION are loaded further down (after
+# load_json() is defined) from software/config/motion_profile.json — shared
+# with go_neutral.py so there's one number to tune, not two hardcoded copies.
+SLOWMO_VELOCITY      = 15  # counts/s ≈ 2.6°/s
+SLOWMO_ACCELERATION  = 3   # counts/s²
+
 # Same reasoning as go_neutral.py: no key-up event over a raw SSH terminal,
 # so "held" is inferred from OS keyboard auto-repeat within this window.
 SPACE_HOLD_WINDOW = 0.2  # seconds
@@ -130,6 +148,14 @@ def load_json(path: Path) -> dict:
     import json
     with open(path) as f:
         return json.load(f)
+
+
+# Shared with go_neutral.py via software/config/motion_profile.json — a single
+# source of truth so tuning one file updates the default for both scripts,
+# instead of two independent hardcoded copies silently drifting apart.
+_motion_defaults = load_json(CONFIG_DIR / "motion_profile.json")
+DEFAULT_VELOCITY     = _motion_defaults["velocity"]      # counts/s — 50 ≈ 8.8°/s
+DEFAULT_ACCELERATION = _motion_defaults["acceleration"]  # counts/s²
 
 
 def build_follower_bus(port: str, cal_follower: dict) -> FeetechMotorsBus:
@@ -250,7 +276,22 @@ def main() -> None:
     parser.add_argument("--port",       default=DEFAULT_PORT)
     parser.add_argument("--overhead-index", type=int, default=DEFAULT_OVERHEAD_INDEX)
     parser.add_argument("--wrist-index",    type=int, default=DEFAULT_WRIST_INDEX)
+    parser.add_argument("--velocity",     type=int, default=None,
+                         help=f"Max joint speed in counts/s for the policy loop "
+                              f"(default: {DEFAULT_VELOCITY}, or {SLOWMO_VELOCITY} with --slowmo)")
+    parser.add_argument("--acceleration", type=int, default=None,
+                         help=f"Ramp rate in counts/s² for the policy loop "
+                              f"(default: {DEFAULT_ACCELERATION}, or {SLOWMO_ACCELERATION} with --slowmo)")
+    parser.add_argument("--slowmo", action="store_true",
+                         help="Cap velocity/acceleration to conservative values — for watching "
+                              "an untested policy's first moves. Overridden by explicit "
+                              "--velocity/--acceleration if both are given.")
     args = parser.parse_args()
+
+    velocity = args.velocity if args.velocity is not None else (
+        SLOWMO_VELOCITY if args.slowmo else DEFAULT_VELOCITY)
+    acceleration = args.acceleration if args.acceleration is not None else (
+        SLOWMO_ACCELERATION if args.slowmo else DEFAULT_ACCELERATION)
 
     device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
 
@@ -280,6 +321,15 @@ def main() -> None:
         safe_enable_torque(bus)
         print("Follower torque: ON")
         go_neutral(bus, neutral)
+
+        # Cap motion speed for the policy loop itself — must happen AFTER
+        # go_neutral() returns, since it resets these to 0/unlimited once its
+        # own move finishes.
+        for name in bus.motors:
+            bus.write("Maximum_Velocity_Limit", name, velocity,     normalize=False, num_retry=3)
+            bus.write("Acceleration",           name, acceleration, normalize=False, num_retry=3)
+        print(f"Policy motion capped: velocity={velocity} (~{velocity / 5.68:.1f}°/s), "
+              f"acceleration={acceleration}")
 
         run_policy_loop(
             bus, cameras, policy, preprocessor, postprocessor,

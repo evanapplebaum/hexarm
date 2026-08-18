@@ -62,8 +62,6 @@ ARM_ID_OFFSET = {"follower": 0, "leader": 6}
 DEFAULT_PORT  = "/dev/ttyACM0"
 CONFIG_DIR    = Path("software/config")
 
-DEFAULT_VELOCITY     = 50   # counts/s  ≈ 8.8°/s
-DEFAULT_ACCELERATION = 10    # counts/s²
 POSITION_TOLERANCE   = 1.0   # normalized units (0–100 scale)
 POLL_HZ              = 50
 
@@ -107,6 +105,14 @@ def load_json(path: Path) -> dict:
         raise FileNotFoundError(f"Missing config file: {path}")
     with open(path) as f:
         return json.load(f)
+
+
+# Shared with run_policy.py via software/config/motion_profile.json — a single
+# source of truth so tuning one file updates the default for both scripts,
+# instead of two independent hardcoded copies silently drifting apart.
+_motion_defaults = load_json(CONFIG_DIR / "motion_profile.json")
+DEFAULT_VELOCITY     = _motion_defaults["velocity"]      # counts/s — 50 ≈ 8.8°/s
+DEFAULT_ACCELERATION = _motion_defaults["acceleration"]  # counts/s²
 
 
 def build_motors(arm: str, names: list[str], prefix: str = "") -> dict[str, Motor]:
