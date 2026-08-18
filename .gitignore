@@ -84,3 +84,18 @@ software/control/*.csv
 
 # Local Python sessions and caches that some shells leave behind
 .python_history
+
+# ─── ML / Training ────────────────────────────────────────────────────────────
+
+# LeRobot training output (checkpoints, optimizer/rng state, pre/post-
+# processor tensors). This is what made `git add --all` hang - 3.5G of
+# generated .safetensors under outputs/train/<run>/checkpoints/<step>/.
+# `checkpoints/` and `*.safetensors` are kept as defense-in-depth in case
+# a future run points --output_dir somewhere other than outputs/.
+outputs/
+checkpoints/
+*.safetensors
+
+# Experiment tracking - not enabled in the current training config, but
+# cheap to pre-empt before someone runs with --wandb.enable=true.
+wandb/

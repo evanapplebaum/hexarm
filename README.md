@@ -2,7 +2,7 @@
 
 A custom 6-DOF leader-follower robotic arm system based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation — with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework as the end goal.
 
-> **Status:** 🔧 In active development — leader-follower **teleoperation working end-to-end** (2026-06-03), calibration and angle limits finalized (2026-07-27). A broken follower joint was reprinted, reassembled, and re-calibrated (2026-08-03); the startup sequence now moves both arms to neutral before recording, plays back a 10s recorded motion, and returns to neutral, with a hold-to-move diagnostic mode for safe testing — confirmed working end-to-end (2026-08-03). Cameras are in hand and connected — the overhead camera is mounted and locked, the wrist camera's reprinted mount is installed and its placement is confirmed good (2026-08-05). Full CAD assembly for both arms (leader + follower) finalized in Onshape (2026-08-09). **Dataset recording is complete** — 50 episodes recorded and verified (2026-08-10, `hexarm/pick_and_place_v2`). Policy training (ACT, via cloud GPU) starts next.
+> **Status:** 🔧 In active development — leader-follower **teleoperation working end-to-end** (2026-06-03), calibration and angle limits finalized (2026-07-27). A broken follower joint was reprinted, reassembled, and re-calibrated (2026-08-03); the startup sequence now moves both arms to neutral before recording, plays back a 10s recorded motion, and returns to neutral, with a hold-to-move diagnostic mode for safe testing — confirmed working end-to-end (2026-08-03). Cameras are in hand and connected — the overhead camera is mounted and locked, the wrist camera's reprinted mount is installed and its placement is confirmed good (2026-08-05). Full CAD assembly for both arms (leader + follower) finalized in Onshape (2026-08-09). **Dataset recording is complete** — 50 episodes recorded and verified (2026-08-10, `hexarm/pick_and_place_v2`). A local training run then hard-froze the Jetson twice (RAM exhaustion, no swap configured) — root-caused and fixed via zram (2026-08-13, see `docs/debugging/postmortems.md` #9). **Full policy training is complete** — 25,000-step ACT run finished locally overnight (2026-08-14, ~6h12m, zero issues), final checkpoint confirmed best of 5 via direct eval. `run_policy.py` (dead-man's-switch-gated policy control on the physical arm) is written and verified but not yet run — that's next.
 
 ---
 
@@ -146,7 +146,8 @@ python software/control/teleop.py --hz 50
 | Angle limits flashed to servo EPROM | ✅ Done (2026-07-27) |
 | Cameras (wrist + overhead, 2× Arducam OV9782 global shutter) | ✅ Done — overhead mounted & locked (2026-07-31), wrist mount reprinted, installed, and placement confirmed (2026-08-05) |
 | Dataset recording | ✅ Done (2026-08-10) — 50 episodes, `hexarm/pick_and_place_v2`, verified + visually reviewed |
-| Policy training | ⏳ Todo — next up, training in the cloud (see `docs/context.md` session-12 log) |
+| Policy training | ✅ Done (2026-08-14) — 25,000-step ACT run completed locally overnight (~6h12m), zero issues after the zram fix (`docs/debugging/postmortems.md` #9). Final checkpoint (`checkpoints/last`) confirmed best of 5 via direct eval — L1 loss 0.1742→0.0942, monotonic, no overfitting. |
+| Run trained policy on hardware | ⏳ Todo — next up. `software/control/run_policy.py` written (dead-man's-switch gated, mirrors `go_neutral.py --diagnostic`; follower-only, no leader arm) — syntax/imports/checkpoint-load all verified, but not yet run against the physical arm. See `docs/context.md` session-14 log. |
 
 ---
 
