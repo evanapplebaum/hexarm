@@ -18,7 +18,7 @@ Load calibration first — if no calibration file exists for the follower,
 run calibrate_lerobot.py first.
 
 Usage (from hexarm root, conda lerobot env):
-  conda activate lerobot
+  source /data/lerobot-env/bin/activate
   python software/calibration/record_neutral.py
 
 Arguments:

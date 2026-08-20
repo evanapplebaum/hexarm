@@ -1,6 +1,7 @@
 # Hexarm
 
-A custom 6-DOF leader-follower robotic arm system based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation — with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework as the end goal.
+A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation — with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework. 
+
 
 > **Status:** 🔧 In active development — leader-follower **teleoperation working end-to-end** (2026-06-03), calibration and angle limits finalized (2026-07-27). A broken follower joint was reprinted, reassembled, and re-calibrated (2026-08-03); the startup sequence now moves both arms to neutral before recording, plays back a 10s recorded motion, and returns to neutral, with a hold-to-move diagnostic mode for safe testing — confirmed working end-to-end (2026-08-03). Cameras are in hand and connected — the overhead camera is mounted and locked, the wrist camera's reprinted mount is installed and its placement is confirmed good (2026-08-05). Full CAD assembly for both arms (leader + follower) finalized in Onshape (2026-08-09). **Dataset recording is complete** — 50 episodes recorded and verified (2026-08-10, `hexarm/pick_and_place_v2`). A local training run then hard-froze the Jetson twice (RAM exhaustion, no swap configured) — root-caused and fixed via zram (2026-08-13, see `docs/debugging/postmortems.md` #9). **Full policy training is complete** — 25,000-step ACT run finished locally overnight (2026-08-14, ~6h12m, zero issues), final checkpoint confirmed best of 5 via direct eval. `run_policy.py` (dead-man's-switch-gated policy control on the physical arm) is written and verified but not yet run — that's next.
 
@@ -51,6 +52,8 @@ Key entry points inside `software/`:
 ```
 software/
 ├── control/teleop.py            # leader-follower teleoperation loop (working)
+├── control/record_dataset.py    # records teleoperated demos into a LeRobotDataset
+├── control/run_policy.py        # runs a trained checkpoint on the physical follower arm
 ├── calibration/                 # LeRobot-based calibration + arm control
 ├── vision/camera_preview.py     # headless MJPEG live-view tool for camera positioning
 └── low-lvl-setup/               # raw SDK diagnostics and one-time setup tools
@@ -62,17 +65,19 @@ software/
 
 - [Session Guide — personal setup checklist + where-we-left-off log](docs/session.md)
 - [Kinematics — DH Parameters & Forward/Inverse Kinematics](docs/kinematics.md)
+- [Teleop Control Loop — 50 Hz `sync_read` → `sync_write` design reference](docs/teleop-control-loop.md)
+- [Servo Protocol Reference — STS3215 packet protocol + hardware-verified gotchas](docs/servo-protocol-reference.md)
 - [Project Context — full hardware/software handoff](docs/context.md)
 - [Postmortems — consolidated incident log (symptom → root cause → fix → lesson)](docs/debugging/postmortems.md)
 - [Servo Comms Bring-Up — full UART/SDK debugging chronology](docs/debugging/servo-comms-debug-log.md)
 - [Robot Dog — forward planning (hardware reuse, camera architecture)](docs/robotdogplan.md)
 - [CAD Assembly (Onshape, public)](https://cad.onshape.com/documents/0670dbd7fb06bb7c9bf9782d/w/e043c38067500e43503b5676/e/e17080d119308b27c44a0ee6) — full parametric model, leader and follower arms modeled separately
+- ADR — [0001: compute platform selection](docs/adr/0001-compute-platform-selection.md) (Pi Zero 2W → Jetson Orin Nano Super), [0002: single-bus servo topology](docs/adr/0002-single-bus-servo-topology.md) (vs. LeRobot's two-bus default)
 
-**Planned** (to be written as the project's notes get consolidated):
+**Still needed** (blocked on physical build details only Evan has — see Roadmap M1/M2):
 
-- ADR — compute platform selection (Pi Zero 2W → Jetson Orin Nano Super)
-- ADR — single-bus servo topology (vs. LeRobot's two-bus default)
-- Teleop control-loop design doc (50 Hz `sync_read` → `sync_write` mapping)
+- Hardware assembly guide
+- Electronics — wiring schematic, bill of materials, servo power budget
 
 ---
 
@@ -162,14 +167,14 @@ python software/control/teleop.py --hz 50
 - [ ] Electronics — servo power budget
 - [ ] Electronics — wiring schematic
 - [ ] Electronics — bill of materials
-- [ ] ADR — compute platform selection
-- [ ] ADR — single-bus servo topology
+- [x] ADR — compute platform selection
+- [x] ADR — single-bus servo topology
 
 ### M3 — Firmware & Low-Level Comms
 - [x] Servo communication over UART/USB (register read/write)
 - [x] Per-servo configuration tool (ID, baud, return delay)
 - [x] Joint-limit calibration tool
-- [ ] Docs — servo protocol reference
+- [x] Docs — servo protocol reference
 
 ### M4 — Software: Kinematics
 - [ ] Software — forward kinematics (DH-based)
@@ -188,7 +193,7 @@ python software/control/teleop.py --hz 50
 - [x] Software — leader-follower control loop (LeRobot)
 - [ ] Software — safety limits and emergency stop
 - [x] Data — record demonstration dataset (2026-08-10, 50 episodes)
-- [ ] Training — train ACT or diffusion policy
+- [x] Training — train ACT or diffusion policy
 - [ ] Deploy — run policy on hardware
 - [ ] Demo — record demo video / GIF
 

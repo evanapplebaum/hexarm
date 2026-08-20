@@ -24,19 +24,19 @@ Parameters:
   --task            Required. Single-sentence task description, stored per-frame.
   --episodes        Number of episodes to record this session. Default: 50.
   --fps             Control-loop / recording rate in Hz. Default: 30.
-  --reset-seconds   Pause between episodes to reposition the object. Default: 10.
+  --reset-seconds   Pause between episodes to reposition the object. Default: 0.
   --port            Serial port for the shared servo bus. Default: /dev/ttyACM0.
   --overhead-index  /dev/videoN index for the overhead camera. Default: 0.
   --wrist-index     /dev/videoN index for the wrist camera. Default: 2.
   --nostartseq      Skip the recorded startup-sequence choreography; go straight to neutral.
   --resume          Add episodes to an existing local dataset at --repo-id instead of creating a new one.
 
-Usage (from hexarm root, conda lerobot env):
+Usage (from hexarm root, lerobot env):
   source /data/lerobot-env/bin/activate
   python software/control/record_dataset.py \
-      --repo-id hexarm/pick_and_place \
+      --repo-id hexarm/pick_and_place_v3 \
       --task "Pick up the block and place it in the bin" \
-      --episodes 5 \
+      --episodes 50 \
       --nostartseq
 
 To Resume from a partially completed dataset (in this example, 3 sessions were already recorded - 47 remaining)
@@ -104,7 +104,7 @@ DEFAULT_PORT = "/dev/ttyACM0"
 
 DEFAULT_FPS            = 30   # matches AGENT_GUIDE's recommended dataset default
 DEFAULT_EPISODES       = 50   # "start small" — see AGENT_GUIDE §5.5
-DEFAULT_RESET_SECONDS  = 5
+DEFAULT_RESET_SECONDS  = 0
 
 # Device indices match camera_preview.py's default `--indices 0 2`.
 DEFAULT_OVERHEAD_INDEX = 0

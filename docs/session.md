@@ -108,8 +108,8 @@ Researched where the overhead camera should go, using LeRobot's own docs/blog pl
 ### Next steps
 - [x] ~~Add CAD renders (screenshots, both arms) to `cad/renders/`, then wire one into the README Demo section~~ (2026-08-09)
 - [x] ~~Start dataset recording~~ (2026-08-10) — all 50 episodes done, see Current state above
-- [ ] **Train the ACT policy** — in the cloud (HF Jobs `--job.target=a10g-large`, or a rented RTX 4090), not on the Jetson. Command not yet written this session — pick up here.
-- [ ] Evaluate the trained checkpoint on the real follower arm, iterate on demonstrations if success rate is low
+- [x] ~~Train the ACT policy~~ (2026-08-14) — ran locally instead of in the cloud once the zram fix (postmortems.md #9) unblocked it; 25,000 steps, ~6h12m, final checkpoint confirmed best of 5 via direct eval
+- [ ] Evaluate the trained checkpoint on the real follower arm, iterate on demonstrations if success rate is low — `run_policy.py` is written but has never been run against physical hardware yet
 - [ ] Write the hardware assembly guide (last open M1 item, README roadmap)
 - [ ] Continue claw redesign (postmortems #4 + #5) — see each entry's TODO list
 - [ ] Disable Jetson GUI (headless, reclaim ~800MB RAM)

@@ -125,42 +125,48 @@ Replaced by the Jetson Orin Nano Super. The full Pi UART bring-up chronology —
 hexarm/
 ├── docs/
 │   ├── context.md                      ← this file (AI handoff doc)
-│   ├── kinematics.md                   ← kinematics notes and derivations
+│   ├── session.md                      ← fast-path personal setup checklist + where-we-left-off log
+│   ├── kinematics.md                   ← DH parameters and forward/inverse kinematics notes
+│   ├── teleop-control-loop.md          ← teleop.py control-loop design reference
+│   ├── servo-protocol-reference.md     ← STS3215 packet protocol + hardware-verified gotchas
+│   ├── robotdogplan.md                 ← forward planning for a future quadruped project (camera/compute reuse)
+│   ├── adr/                            ← architecture decision records
+│   │   ├── 0001-compute-platform-selection.md
+│   │   └── 0002-single-bus-servo-topology.md
 │   ├── debugging/
+│   │   ├── postmortems.md              ← consolidated incident log (symptom → root cause → fix → lesson)
 │   │   └── servo-comms-debug-log.md    ← full chronology of UART/SDK debugging (Phases 1–5); read before touching servo comms
-│   ├── handoffs/                       ← session handoff docs (e.g. wrap-around calibration)
-│   ├── images/                         ← (empty scaffold — demo GIFs/photos go here)
-│   └── documentation/                  ← datasheets and manuals
+│   └── component_specs/                ← datasheets and manuals
 │       ├── ST3215 Communication Manual.pdf
 │       ├── ST3215-general-manual.pdf
 │       ├── Servo-bus-schematic.pdf
-│       └── sts3215_memory_table.xlsx
+│       ├── sts3215_memory_table.xlsx
+│       └── B0385_OV9782_Global_Shutter_UVC_Camera_Datasheet_19190316e78.pdf
 ├── cad/                                ← live CAD doc linked in Hardware → Arm Structure above (Onshape, cloud-hosted — no native files stored here)
-│   ├── assembly/                       ← (empty scaffold, unused)
 │   ├── exports/                        ← STEP exports, added 2026-08-09
 │   │   ├── leader/                     ← leader arm's custom-designed parts only (base, crank, link1-4, wheel)
 │   │   ├── follower/                   ← follower arm's custom-designed parts only (base, claw, link1-5, pinion, racks, part18, Arducam mount)
+│   │   ├── overhead camera mount/      ← overhead tower/mount custom parts
 │   │   └── sts3215_servo_reference.step ← ONE copy of the vendor STS3215 servo model (same part instanced 6×/arm in Onshape; only one kept here, not 12 near-duplicates)
-│   ├── parts/                          ← (empty scaffold, unused)
 │   └── renders/                        ← leader_arm.png, follower_arm.png — isometric assembly screenshots, used in README Demo section (added 2026-08-09)
 ├── electronics/
-│   ├── bom/                            ← (empty scaffold)
 │   └── schematics/
-│       └── Raspberry Pi 5 Pinout.png   ← NOTE: outdated — project now uses Jetson Orin Nano Super
+│       └── Raspberry Pi 5 Pinout.png   ← NOTE: stale, generic vendor pinout — project now uses Jetson Orin Nano Super; not a real hexarm wiring schematic. Real schematic + BOM still TODO, see Roadmap M2.
 ├── firmware/
-│   ├── tools/
-│   │   └── set_baud_115200/
-│   │       └── set_baud_115200.ino     ← Arduino one-shot: changes servo baud 1Mbps→115200
-│   ├── lib/                            ← (empty scaffold)
-│   └── src/                            ← (empty scaffold)
+│   └── tools/
+│       └── set_baud_115200/
+│           └── set_baud_115200.ino     ← Arduino one-shot: changes servo baud 1Mbps→115200
 ├── scripts/
 │   └── setup-github.sh
-├── simulation/                         ← (empty scaffold)
-│   └── urdf/
+├── outputs/train/                      ← local lerobot-train run outputs (checkpoints), gitignored
+│   ├── act_benchmark_local/            ← short local benchmark run, used to size Jetson vs. cloud training time
+│   └── act_pick_and_place_v2/          ← the real 25,000-step run — checkpoints/{005000,010000,015000,020000,025000,last}
 ├── software/
-│   ├── control/                        ← application-level scripts (run from repo root, conda lerobot)
+│   ├── control/                        ← application-level scripts (run from repo root, lerobot-env)
 │   │   ├── teleop.py                   ← leader-follower teleoperation; single bus, 12 motors; ✅ working (2026-06-03)
-│   │   └── record_dataset.py           ← records teleoperated demos into a LeRobotDataset (both cameras + both arms); custom recorder (not `lerobot-record`) since hexarm shares one bus/port across arms; ✅ added (2026-08-03), hardened 2026-08-10: both arms return to neutral after the final episode (not just between episodes); `image_writer_threads = 4 × len(cameras)` (LeRobot's own per-camera recommendation — too few threads was silently queuing a multi-minute backlog with no console feedback); `--resume` now passes an explicit `root=HF_LEROBOT_HOME/repo_id` (required, unlike `create()`); recording resolution (`record_sizes`) is now read from the target dataset's own feature schema instead of a fixed constant — see postmortems.md #8 for the data-loss incident this fixes; full-width on-screen banner when recording starts (visible from across the room)
+│   │   ├── record_dataset.py           ← records teleoperated demos into a LeRobotDataset (both cameras + both arms); custom recorder (not `lerobot-record`) since hexarm shares one bus/port across arms; ✅ added (2026-08-03), hardened 2026-08-10: both arms return to neutral after the final episode (not just between episodes); `image_writer_threads = 4 × len(cameras)` (LeRobot's own per-camera recommendation — too few threads was silently queuing a multi-minute backlog with no console feedback); `--resume` now passes an explicit `root=HF_LEROBOT_HOME/repo_id` (required, unlike `create()`); recording resolution (`record_sizes`) is now read from the target dataset's own feature schema instead of a fixed constant — see postmortems.md #8 for the data-loss incident this fixes; full-width on-screen banner when recording starts (visible from across the room)
+│   │   ├── run_policy.py               ← runs a trained checkpoint on the physical follower arm (no leader involved); dead-man's-switch gated (hold SPACE to let predicted actions reach the servos, release freezes instantly), same convention as go_neutral.py --diagnostic; ✅ written and verified (imports, checkpoint load, feature shapes) 2026-08-14, not yet run against real hardware
+│   │   └── torque_off.py               ← interactive torque disable
 │   ├── vision/                         ← camera positioning/dev tools (not part of the LeRobot camera config)
 │   │   └── camera_preview.py           ← headless MJPEG-over-HTTP live preview (stdlib http.server + cv2); serves one stream per --indices arg at http://<jetson-ip>:8080/videoN; used to aim/lock camera mounts before recording, then torn down
 │   ├── calibration/                    ← LeRobot-based calibration and arm control scripts
@@ -197,24 +203,20 @@ hexarm/
 │   │   └── st3215-src/                 ← Feetech Arduino library source (SCServo)
 │   │       ├── SCServo/                ← Library with SMS_STS, SCSCL classes + examples
 │   │       └── ST Servo/               ← Alternative library variant
-│   ├── kinematics/                     ← (empty scaffold)
-│   ├── utils/                          ← (empty scaffold)
 │   └── config/
 │       ├── limits.json                 ← joint travel limits (populated by calibrate.py, leader arm)
 │       ├── home.json                   ← raw encoder home positions for move_one.py (IDs 1–6)
+│       ├── motion_profile.json         ← shared {velocity, acceleration} defaults for go_neutral.py/run_policy.py — one source of truth so tuning one file updates both
 │       ├── calibration_follower.json   ← LeRobot calibration — follower arm (IDs 1–6); ✅ working
 │       ├── calibration_leader.json     ← LeRobot calibration — leader arm (IDs 7–12); ✅ working
 │       ├── neutral.json                ← single shared neutral pose, normalized 0–100, applied identically to BOTH arms (2026-08-01; replaces neutral_follower.json/neutral_leader.json — see Setup Status for why)
+│       ├── neutral_follower.json, neutral_leader.json ← stale, unused — pre-unification per-arm captures, kept on disk but superseded by neutral.json
 │       └── startup_sequence.json       ← recorded leader-arm motion (50 Hz, ~10s of samples), played on both arms at teleop startup; ✅ new (2026-08-01), extended from 5s (2026-08-03)
 ├── .venv/                              ← Python venv (recreate per platform — NOT cross-platform)
 └── .gitignore
 ```
 
-### Important config.py Notes
-- `config.py` currently has port assignments written for **Pi 5** (`/dev/ttyAMA0` and `/dev/ttyAMA3` on GPIO 4/5)
-- **Pi Zero 2W only has one exposed hardware UART** (ttyAMA0 on GPIO 14/15 after disable-bt)
-- Second arm port strategy for Pi Zero 2W is TBD — options: USB adapter, or software UART
-- The 1kΩ resistor half-duplex wiring comment in config.py applies to **direct** Pi→servo wiring; the Waveshare board handles this internally
+There is no `config.py` in the current tree — an earlier Pi-era config module (Pi 5 UART port assignments, direct-wiring resistor notes) was fully superseded by the `software/config/*.json` files above plus per-script `--port` CLI args, and was removed. `software/kinematics/` and `software/utils/` (scaffolds for M4's FK/IK work) and a top-level `simulation/urdf/` (for the M4 URDF/RViz item) are referenced in the Roadmap but don't exist on disk yet — that work hasn't started, see Setup Status.
 
 ---
 
@@ -388,7 +390,7 @@ End-to-end SDK path has worked since 2026-05-25 (on the Pi) and now runs on the 
 | Cameras — 2× Arducam OV9782 (B0385) global shutter USB, wrist + overhead | ✅ In hand, both connected (`/dev/video0` overhead, `/dev/video2` wrist). See Vision section + `docs/robotdogplan.md`. |
 | Local git object DB — corrupted loose objects found | ✅ Fixed (2026-08-03) — found 2026-07-31, 6 empty/corrupt loose objects (`master`'s tip commit among them). Packed history and `origin` were unaffected, so the fix was: delete the corrupt loose objects and the two local refs pointing at the corrupt commit, then `git fetch origin` to redownload it (refs already claiming to "have" a commit block fetch from resending it, so they had to go first). `git fsck --full` clean after. The 2026-08-01 session's uncommitted script changes were then committed (`60ce4ac`) and pushed. |
 | **Application** | |
-| config.py rewrite (Jetson ports, remove Pi 5 / Pi Zero 2W refs) | ⏳ Todo |
+| config.py rewrite (Jetson ports, remove Pi 5 / Pi Zero 2W refs) | ✅ Obsolete — `config.py` was removed entirely, superseded by `software/config/*.json` + per-script `--port` CLI args (no Pi-era references remain to clean up) |
 | move_one.py — ping, ReadPos, torque enable, home move | ✅ Done (2026-05-28) |
 | torque_off.py — interactive torque disable | ✅ Done (2026-05-28) |
 | flash_angle_limits.py — write limits.json to servo EPROM | ✅ Done (2026-05-28) |
@@ -401,7 +403,7 @@ End-to-end SDK path has worked since 2026-05-25 (on the Pi) and now runs on the 
 | run_startup_sequence.py — neutral → sequence → neutral, both arms | ✅ Done (2026-08-01, software/calibration/run_startup_sequence.py); used by teleop.py startup |
 | teleop.py — leader-follower teleoperation | ✅ Done (2026-06-03, software/control/teleop.py). Startup rewritten 2026-08-01 to go through run_startup_sequence.py instead of a bare go_neutral() call — see Neutral Pose Unification section below for the bug this fixes. New prerequisite: `config/startup_sequence.json` must exist (run set_startup_sequence.py first) or teleop.py raises FileNotFoundError. |
 | First teleoperation test | ✅ Done (2026-06-03, confirmed working perfectly) |
-| .gitignore for CSV stress-test artifacts | ⏳ Todo |
+| .gitignore for CSV stress-test artifacts | ✅ Done — `ping_stress_*.csv` and `software/control/*.csv` patterns present |
 | camera_preview.py — headless MJPEG live-view tool for camera positioning | ✅ Done (2026-07-31, software/vision/camera_preview.py) |
 | Overhead camera mounted at target geometry | ✅ Done (2026-07-31) — confirmed via live preview, framing locked |
 | Wrist camera mounted at target geometry | ✅ Done (2026-08-05) — reprinted mount (designed around the real 70°(H) FOV) installed 2026-08-01, placement/aim confirmed via `camera_preview.py` |
