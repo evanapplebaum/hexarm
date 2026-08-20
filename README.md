@@ -1,9 +1,8 @@
 # Hexarm
 
-A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation — with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework. 
+A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation — with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework.
 
-
-> **Status:** 🔧 In active development — leader-follower **teleoperation working end-to-end** (2026-06-03), calibration and angle limits finalized (2026-07-27). A broken follower joint was reprinted, reassembled, and re-calibrated (2026-08-03); the startup sequence now moves both arms to neutral before recording, plays back a 10s recorded motion, and returns to neutral, with a hold-to-move diagnostic mode for safe testing — confirmed working end-to-end (2026-08-03). Cameras are in hand and connected — the overhead camera is mounted and locked, the wrist camera's reprinted mount is installed and its placement is confirmed good (2026-08-05). Full CAD assembly for both arms (leader + follower) finalized in Onshape (2026-08-09). **Dataset recording is complete** — 50 episodes recorded and verified (2026-08-10, `hexarm/pick_and_place_v2`). A local training run then hard-froze the Jetson twice (RAM exhaustion, no swap configured) — root-caused and fixed via zram (2026-08-13, see `docs/debugging/postmortems.md` #9). **Full policy training is complete** — 25,000-step ACT run finished locally overnight (2026-08-14, ~6h12m, zero issues), final checkpoint confirmed best of 5 via direct eval. `run_policy.py` (dead-man's-switch-gated policy control on the physical arm) is written and verified but not yet run — that's next.
+> **Status:** 🔧 In active development. Both arms are built, calibrated, and teleoperating end-to-end; a 50-episode pick-and-place dataset has been recorded and a first ACT policy trained (25,000 steps, best-of-5 checkpoint confirmed via direct eval). A second training run is in progress now; running the trained policy on the physical follower arm is next. Full session-by-session history lives in [docs/context.md](docs/context.md).
 
 ---
 
@@ -40,11 +39,9 @@ A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based 
 ```
 hexarm/
 ├── cad/            # Mechanical design files and exports (Onshape)
-├── firmware/       # Arduino tools (one-shot servo config sketches)
 ├── software/       # Control, calibration, and low-level setup scripts
 ├── electronics/    # Schematics and bill of materials
-├── docs/           # Technical documentation and debugging logs
-└── simulation/     # URDF and simulation models
+└── docs/           # Technical documentation and debugging logs
 ```
 
 Key entry points inside `software/`:
@@ -63,20 +60,17 @@ software/
 
 ## Documentation
 
-- [Session Guide — personal setup checklist + where-we-left-off log](docs/session.md)
-- [Kinematics — DH Parameters & Forward/Inverse Kinematics](docs/kinematics.md)
+- [Hardware Assembly Guide — fastener reference, build order, workspace setup](docs/hardware-assembly-guide.md)
 - [Teleop Control Loop — 50 Hz `sync_read` → `sync_write` design reference](docs/teleop-control-loop.md)
 - [Servo Protocol Reference — STS3215 packet protocol + hardware-verified gotchas](docs/servo-protocol-reference.md)
 - [Project Context — full hardware/software handoff](docs/context.md)
 - [Postmortems — consolidated incident log (symptom → root cause → fix → lesson)](docs/debugging/postmortems.md)
 - [Servo Comms Bring-Up — full UART/SDK debugging chronology](docs/debugging/servo-comms-debug-log.md)
-- [Robot Dog — forward planning (hardware reuse, camera architecture)](docs/robotdogplan.md)
 - [CAD Assembly (Onshape, public)](https://cad.onshape.com/documents/0670dbd7fb06bb7c9bf9782d/w/e043c38067500e43503b5676/e/e17080d119308b27c44a0ee6) — full parametric model, leader and follower arms modeled separately
 - ADR — [0001: compute platform selection](docs/adr/0001-compute-platform-selection.md) (Pi Zero 2W → Jetson Orin Nano Super), [0002: single-bus servo topology](docs/adr/0002-single-bus-servo-topology.md) (vs. LeRobot's two-bus default)
 
-**Still needed** (blocked on physical build details only Evan has — see Roadmap M1/M2):
+**Still needed** (blocked on physical build details only Evan has — see Roadmap M2):
 
-- Hardware assembly guide
 - Electronics — wiring schematic, bill of materials, servo power budget
 
 ---
@@ -104,11 +98,11 @@ There are **two separate power adapters** — both plug into standard AC wall so
 Full connection sequence:
 
 1. Daisy-chain both arms' servo JST connectors into the **one** Waveshare Bus Servo Adapter (A) that's in use (the second board on hand is a spare — not wired in for the current single-bus setup).
-2. Confirm the board's physical mode switch is set to **USB-Servo**.
+2. Confirm the board's physical mode switch is set to **USB-Servo**. 
 3. Plug the 12V/5A adapter into the Waveshare board's barrel jack (servo bus power).
 4. Plug the 19V/2.37A adapter into the Jetson's barrel jack (compute power).
-5. Connect the Waveshare board to the Jetson via USB — it enumerates as `/dev/ttyACM0`.
-6. Power on the Jetson and SSH in (`ssh evan0h@eka-orin.local`).
+5. Connect the Waveshare board to the Jetson via USB.
+6. Power on the Jetson and SSH in (ssh username@hostname.local).
 
 ### Software Setup (Jetson)
 
@@ -117,12 +111,15 @@ Full connection sequence:
 git clone https://github.com/evanapplebaum/hexarm.git
 cd hexarm
 
-# LeRobot runs in a conda env (Python 3.12 required)
-conda activate lerobot
-
-# Verify communication with a connected servo:
-python software/low-lvl-setup/raw_ping.py --id 1     # raw pyserial diagnostic
+# Raw SDK diagnostics only need pyserial — use the hexarm .venv
+source .venv/bin/activate
 python software/low-lvl-setup/ping_one.py --id 1     # via the scservo_sdk path
+python software/low-lvl-setup/raw_ping.py --id 1     # raw pyserial diagnostic
+deactivate
+
+# Anything importing LeRobot (teleop, calibration, recording) uses the
+# separate lerobot-env venv (Python 3.12+, CUDA-linked torch build)
+source /data/lerobot-env/bin/activate
 
 # Run leader-follower teleoperation:
 python software/control/teleop.py --hz 50
@@ -161,7 +158,7 @@ python software/control/teleop.py --hz 50
 ### M1 — CAD Complete
 - [x] CAD — individual part design
 - [x] CAD — full assembly
-- [ ] Docs — hardware assembly guide
+- [x] Docs — hardware assembly guide
 
 ### M2 — Electronics & BOM
 - [ ] Electronics — servo power budget

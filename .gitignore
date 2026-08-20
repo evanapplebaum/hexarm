@@ -99,3 +99,8 @@ checkpoints/
 # Experiment tracking - not enabled in the current training config, but
 # cheap to pre-empt before someone runs with --wandb.enable=true.
 wandb/
+
+# ─── Scratch ─────────────────────────────────────────────────────────────────
+
+# Temporary working checklist, not meant to be a permanent repo artifact.
+WRAPUP.md

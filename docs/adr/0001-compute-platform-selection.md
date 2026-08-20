@@ -45,7 +45,7 @@ reflash" write-up.
 - Real onboard training became possible: the 25,000-step ACT run for
   `hexarm/pick_and_place_v2` completed locally overnight (2026-08-14,
   ~6h12m) rather than requiring a round-trip to the cloud (though cloud
-  training remains an option for larger runs — see `docs/session.md`).
+  training remains an option for larger runs — see `docs/context.md`).
 - New failure surface that a Pi Zero 2W never had: the Jetson's unified
   memory pool can be exhausted by a training run with no swap configured,
   hard-freezing the board with no OOM-kill warning — hit twice, root-caused
