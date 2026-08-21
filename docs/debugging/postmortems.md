@@ -169,7 +169,7 @@ Consolidated log of hardware/software incidents encountered while building hexar
 
 ## 10. First Hardware Policy Run — Claw Grazing the Block, Near-Clipping the Bowl Lip
 
-**Dates:** exact date not logged — between the v2 checkpoint being confirmed best-of-5 (2026-08-14) and the v3 re-recording (2026-08-20) · **Severity:** High (near-miss, no actual damage) · **Status:** ⏳ Mitigation trained, not yet re-verified on hardware
+**Dates:** exact date not logged — between the v2 checkpoint being confirmed best-of-5 (2026-08-14) and the v3 re-recording (2026-08-20) · **Severity:** High (near-miss, no actual damage) · **Status:** ✅ Resolved — v3 verified on hardware 2026-08-21
 
 **Symptom:** First physical run of the trained policy (`act_pick_and_place_v2`, 25,000-step checkpoint, via `run_policy.py`'s dead-man's-switch mode) completed the pick-and-place task successfully, but with thin real-world margins in two places: (1) during the pick, the claw would sometimes graze the block while closing around it — if contact had been harder, it risked breaking the claw (PLA, already flagged as fragile in postmortems #4 and #5); (2) during the place, the trajectory toward the bowl would often pass just over the bowl's top lip, with little clearance to spare.
 
@@ -181,9 +181,9 @@ Consolidated log of hardware/software incidents encountered while building hexar
 
 **Lesson:** An imitation-learning policy is only as cautious as its demonstrations. Offline loss confirms the policy learned the demonstrated behavior faithfully — it says nothing about whether that behavior had adequate real-world margin. When the hardware being controlled is fragile (this project's PLA claw, already an open concern per postmortems #4/#5) or the workspace has hard edges, demonstrate with margins deliberately wider than a human teleoperator would think necessary. The policy will reproduce your habits, including your close calls, on every attempt rather than just the one where you got lucky.
 
-**TODO:**
-- [ ] Run the v3 checkpoint on hardware and confirm the wider claw opening / higher drop-off arc actually resolved the grazing and near-clipping (this postmortem stays open until that's verified)
-- [ ] If margins are still tight, consider whether the fix needs to go further (e.g. explicit clearance targets during recording, not just "open wider"/"go higher" by feel)
+**Verification (2026-08-21):** Ran the v3 checkpoint on hardware via `run_policy.py` (dead-man's-switch, SPACE held in bursts) — 3 successful pick-and-place completions. Both margins confirmed improved: claw clearance around the block on pick and clearance over the bowl's lip on drop-off were both noticeably wider, no grazing or near-clipping observed across the 3 runs. Separately, some runs failed to pick up the block at all due to camera-coverage blind spots (a different failure mode, not a margin/clearance issue) — noted as a known limitation, not being pursued further (no additional training planned).
+
+**TODO:** none — closed.
 
 ---
 

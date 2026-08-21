@@ -2,7 +2,7 @@
 
 A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation — with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework.
 
-> **Status:** 🔧 In active development. Both arms are built, calibrated, and teleoperating end-to-end. A first ACT policy (25,000 steps) ran successfully on the physical follower arm, but with tight real-world margins — the claw sometimes grazed the block on pick, and the drop-off motion passed close over the bowl's lip (see [postmortem #10](docs/debugging/postmortems.md#10-first-hardware-policy-run--claw-grazing-the-block-near-clipping-the-bowl-lip)). A new 50-episode dataset was recorded with wider claw opening and a higher drop-off arc, and a second policy (30,000 steps) has been trained on it; running it on hardware to confirm the fix is next. Full session-by-session history lives in [docs/context.md](docs/context.md).
+> **Status:** ✅ Core pipeline complete. Both arms are built, calibrated, and teleoperating end-to-end. An ACT policy trained on a 50-episode pick-and-place dataset runs autonomously on the physical follower arm via a dead-man's-switch-gated control loop. Full session-by-session history lives in [docs/context.md](docs/context.md).
 
 ---
 
@@ -149,7 +149,7 @@ python software/control/teleop.py --hz 50
 | Cameras (wrist + overhead, 2× Arducam OV9782 global shutter) | ✅ Done — overhead mounted & locked (2026-07-31), wrist mount reprinted, installed, and placement confirmed (2026-08-05) |
 | Dataset recording | ✅ Done — `hexarm/pick_and_place_v2` (2026-08-10, 50 episodes, verified + visually reviewed); superseded by `hexarm/pick_and_place_v3` (2026-08-20, 50 episodes re-recorded with wider claw opening + higher drop-off arc, see postmortem #10) |
 | Policy training | ✅ Done — v2: 25,000-step ACT run (2026-08-14), best of 5 via direct eval, L1 loss 0.1742→0.0942, monotonic, no overfitting. v3: 30,000-step ACT run on the re-recorded dataset (completed 2026-08-21, ~12h07m), best checkpoint confirmed via the same direct-eval method — see `docs/context.md` session 15 log. |
-| Run trained policy on hardware | 🔶 In progress — v2's checkpoint **was** run on the physical follower arm via `software/control/run_policy.py` (dead-man's-switch gated, mirrors `go_neutral.py --diagnostic`) and completed the task, but with tight margins flagged in postmortem #10. v3 was trained to address it; running v3 on hardware to confirm is next. |
+| Run trained policy on hardware | ✅ Done (2026-08-21) — v3's checkpoint run on the physical follower arm via `software/control/run_policy.py` (dead-man's-switch gated, mirrors `go_neutral.py --diagnostic`); postmortem #10's margin issues confirmed fixed. |
 
 ---
 
@@ -191,7 +191,7 @@ python software/control/teleop.py --hz 50
 - [ ] Software — safety limits and emergency stop
 - [x] Data — record demonstration dataset (2026-08-10, 50 episodes)
 - [x] Training — train ACT or diffusion policy
-- [ ] Deploy — run policy on hardware (v2 run and worked, but see postmortem #10; v3 retrained to fix, not yet re-verified)
+- [x] Deploy — run policy on hardware (v3, 2026-08-21 — postmortem #10 margins confirmed fixed)
 - [ ] Demo — record demo video / GIF
 
 ---
