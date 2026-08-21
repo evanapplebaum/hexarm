@@ -24,8 +24,10 @@ needs a display backend) doesn't work headless over SSH either.
 
 Parameters:
   --checkpoint      Path to a pretrained_model dir. Default: the final
-                     checkpoint of the run this project just did
-                     (outputs/train/act_pick_and_place_v2/checkpoints/last).
+                     checkpoint of the v3 run (outputs/train/act_pick_and_place_v3/checkpoints/last),
+                     which supersedes v2 — v2 ran on hardware and worked but
+                     left tight margins (see docs/debugging/postmortems.md #10);
+                     v3 was retrained on a re-recorded dataset to fix that.
   --task            Task description string, must match what the dataset
                      was recorded with. Default: "Pick up the block and
                      place it in the bin" (confirmed via meta/tasks.parquet).
@@ -103,10 +105,10 @@ DEFAULT_WRIST_INDEX    = 2
 CAMERA_WIDTH  = 1280
 CAMERA_HEIGHT = 800
 
-DEFAULT_CHECKPOINT = "outputs/train/act_pick_and_place_v2/checkpoints/last/pretrained_model"
+DEFAULT_CHECKPOINT = "outputs/train/act_pick_and_place_v3/checkpoints/last/pretrained_model"
 DEFAULT_TASK        = "Pick up the block and place it in the bin"
-DATASET_REPO_ID      = "hexarm/pick_and_place_v2"
-DATASET_ROOT          = "/data/lerobot_home/hexarm/pick_and_place_v2"
+DATASET_REPO_ID      = "hexarm/pick_and_place_v3"
+DATASET_ROOT          = "/data/lerobot_home/hexarm/pick_and_place_v3"
 
 # Motion profile for the policy loop itself — separate from go_neutral()'s own
 # internal defaults, which it explicitly resets to 0 (= unlimited) after every

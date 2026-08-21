@@ -167,4 +167,24 @@ Consolidated log of hardware/software incidents encountered while building hexar
 
 ---
 
+## 10. First Hardware Policy Run — Claw Grazing the Block, Near-Clipping the Bowl Lip
+
+**Dates:** exact date not logged — between the v2 checkpoint being confirmed best-of-5 (2026-08-14) and the v3 re-recording (2026-08-20) · **Severity:** High (near-miss, no actual damage) · **Status:** ⏳ Mitigation trained, not yet re-verified on hardware
+
+**Symptom:** First physical run of the trained policy (`act_pick_and_place_v2`, 25,000-step checkpoint, via `run_policy.py`'s dead-man's-switch mode) completed the pick-and-place task successfully, but with thin real-world margins in two places: (1) during the pick, the claw would sometimes graze the block while closing around it — if contact had been harder, it risked breaking the claw (PLA, already flagged as fragile in postmortems #4 and #5); (2) during the place, the trajectory toward the bowl would often pass just over the bowl's top lip, with little clearance to spare.
+
+**Investigation:** Caught by eye during the run itself, under the dead-man's-switch (SPACE held in short bursts, per the script's own guidance) — not by any automated check. Notably, nothing in the policy's offline eval numbers predicted this: L1 loss was 0.0942 at 25k, monotonically decreasing across all 5 checkpoints with no sign of overfitting (see the 2026-08-14 session log). That number measures how faithfully the policy reproduces the *demonstrated* trajectories, not how much clearance those trajectories leave from real-world contact — a policy can nail its training objective and still have no margin for error.
+
+**Root cause:** The policy faithfully reproduced what was demonstrated in `pick_and_place_v2` — and those demonstrations themselves had tight margins: the leader-arm claw wasn't opened much wider than the block during approach, and the drop-off motion passed close over the bowl's rim by habit, not by design. Imitation learning has no built-in notion of "safety margin" beyond what's in the data; a policy trained on close-but-successful demonstrations reproduces those same close calls every time, minus the human reflexes that would normally catch a bad attempt.
+
+**Fix:** Re-recorded a new 50-episode dataset, `hexarm/pick_and_place_v3` (2026-08-20), demonstrating the same task with two deliberate changes: opening the claw wider by default before closing on the block, and going deliberately higher over the bowl's lip during the drop-off. Retrained ACT from scratch on the new dataset — 30,000 steps (up from 25,000), all other hyperparameters unchanged (chunk_size/n_action_steps/kl_weight identical to the v2 run). Training completed 2026-08-21 04:56; see the session log for checkpoint eval results.
+
+**Lesson:** An imitation-learning policy is only as cautious as its demonstrations. Offline loss confirms the policy learned the demonstrated behavior faithfully — it says nothing about whether that behavior had adequate real-world margin. When the hardware being controlled is fragile (this project's PLA claw, already an open concern per postmortems #4/#5) or the workspace has hard edges, demonstrate with margins deliberately wider than a human teleoperator would think necessary. The policy will reproduce your habits, including your close calls, on every attempt rather than just the one where you got lucky.
+
+**TODO:**
+- [ ] Run the v3 checkpoint on hardware and confirm the wider claw opening / higher drop-off arc actually resolved the grazing and near-clipping (this postmortem stays open until that's verified)
+- [ ] If margins are still tight, consider whether the fix needs to go further (e.g. explicit clearance targets during recording, not just "open wider"/"go higher" by feel)
+
+---
+
 *Have a new issue in progress? Add a new `## N. Title` section above using the same template — even a partially-solved entry (Symptom + Investigation so far) is useful; fill in Root Cause / Fix / Lesson once resolved.*
