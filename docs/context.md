@@ -141,6 +141,8 @@ hexarm/
 │       ├── Servo-bus-schematic.pdf
 │       ├── sts3215_memory_table.xlsx
 │       └── B0385_OV9782_Global_Shutter_UVC_Camera_Datasheet_19190316e78.pdf
+├── media/
+│   └── pictures/                       ← real hardware photos (JPG), wired into README's Demo section
 ├── cad/                                ← live CAD doc linked in Hardware → Arm Structure above (Onshape, cloud-hosted — no native files stored here)
 │   ├── exports/                        ← STEP exports, added 2026-08-09
 │   │   ├── leader/                     ← leader arm's custom-designed parts only (base, crank, link1-4, wheel)
@@ -148,9 +150,7 @@ hexarm/
 │   │   ├── overhead camera mount/      ← overhead tower/mount custom parts
 │   │   └── sts3215_servo_reference.step ← ONE copy of the vendor STS3215 servo model (same part instanced 6×/arm in Onshape; only one kept here, not 12 near-duplicates)
 │   └── renders/                        ← leader_arm.png, follower_arm.png — isometric assembly screenshots, used in README Demo section (added 2026-08-09)
-├── electronics/
-│   └── schematics/
-│       └── Raspberry Pi 5 Pinout.png   ← NOTE: stale, generic vendor pinout — project now uses Jetson Orin Nano Super; not a real hexarm wiring schematic. Real schematic + BOM still TODO, see Roadmap M2.
+├── electronics/                        ← empty (schematics/ subfolder has no files); a wiring schematic + BOM were considered and dropped (2026-08-21, Evan's call — not worth it for the portfolio), not left as planned work
 ├── scripts/
 │   └── setup-github.sh
 ├── outputs/train/                      ← local lerobot-train run outputs (checkpoints), gitignored
@@ -211,7 +211,7 @@ hexarm/
 └── .gitignore
 ```
 
-There is no `config.py` in the current tree — an earlier Pi-era config module (Pi 5 UART port assignments, direct-wiring resistor notes) was fully superseded by the `software/config/*.json` files above plus per-script `--port` CLI args, and was removed. `software/kinematics/` and `software/utils/` (scaffolds for M4's FK/IK work) and a top-level `simulation/urdf/` (for the M4 URDF/RViz item) are referenced in the Roadmap but don't exist on disk yet — that work hasn't started, see Setup Status.
+There is no `config.py` in the current tree — an earlier Pi-era config module (Pi 5 UART port assignments, direct-wiring resistor notes) was fully superseded by the `software/config/*.json` files above plus per-script `--port` CLI args, and was removed. `software/kinematics/`, `software/utils/`, and a top-level `simulation/urdf/` never got built — the FK/IK/URDF work they'd have held (formerly Roadmap M4) was dropped by Evan's decision (2026-08-21), not just deferred, so there's no plan to add them.
 
 ---
 
@@ -709,7 +709,7 @@ LeRobot 0.6.1's `pyproject.toml` pins `torch>=2.7,<2.12.0`, which excludes the o
 
 **A different failure mode showed up, not related to postmortem #10.** Some runs failed to pick up the block at all — attributed to camera-coverage blind spots (the policy losing sight of the block/gripper from certain positions), not a margin/clearance problem. This is a known limitation going forward; no further training or dataset re-recording is planned, so it's being documented as-is rather than chased further.
 
-**Status:** this closes the last functional TODO on the hardware/software side — `run_policy.py`'s v3 checkpoint is verified working end-to-end on the physical arm. Remaining project work is documentation/portfolio polish (README media, electronics docs, kinematics docs) rather than anything functional — see `WRAPUP.md`.
+**Status:** this closes the last functional TODO on the hardware/software side — `run_policy.py`'s v3 checkpoint is verified working end-to-end on the physical arm. Remaining project work is portfolio polish (pinning the LeRobot version, README badges, a `docs/context.md` summary/TOC — see `WRAPUP.md`) rather than anything functional. Roadmap M2's electronics items (wiring schematic/BOM/power budget), M4 (kinematics), and M6's safety-limits/e-stop item were all dropped outright (2026-08-21, Evan's call), not deferred — no further work planned on any of them. Real hardware photos (14, `media/pictures/`) were added and wired into the README Demo section the same day; the demo video was skipped by choice (recordings ran too long).
 
 ---
 

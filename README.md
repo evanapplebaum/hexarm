@@ -26,11 +26,42 @@ A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based 
 
 ## Demo
 
+### CAD
+
 | Leader | Follower |
 |---|---|
 | ![Leader arm CAD assembly](cad/renders/leader_arm.png) | ![Follower arm CAD assembly](cad/renders/follower_arm.png) |
 
-*CAD renders (Onshape, 2026-08-09) of the finished leader and follower arm assemblies. Real hardware photos and teleop video coming soon.*
+*CAD renders (Onshape, 2026-08-09) of the finished leader and follower arm assemblies.*
+
+### Hardware Photos
+
+<table>
+<tr>
+<td align="center"><img src="media/pictures/full-scene.jpg" width="200"><br>Full workspace scene</td>
+<td align="center"><img src="media/pictures/both-standing.jpg" width="200"><br>Both arms</td>
+<td align="center"><img src="media/pictures/closeup-sideview.jpg" width="200"><br>Side view close-up</td>
+<td align="center"><img src="media/pictures/leader-closeup.jpg" width="200"><br>Leader close-up</td>
+</tr>
+<tr>
+<td align="center"><img src="media/pictures/leader-claw-closeup.jpg" width="200"><br>Leader claw close-up</td>
+<td align="center"><img src="media/pictures/follower-isometric.jpg" width="200"><br>Follower isometric</td>
+<td align="center"><img src="media/pictures/follower-sideview.jpg" width="200"><br>Follower side view</td>
+<td align="center"><img src="media/pictures/follower-front-close.jpg" width="200"><br>Follower front close-up</td>
+</tr>
+<tr>
+<td align="center"><img src="media/pictures/follower-top-side.jpg" width="200"><br>Follower top/side view</td>
+<td align="center"><img src="media/pictures/follower-underview.jpg" width="200"><br>Follower underside</td>
+<td align="center"><img src="media/pictures/follower-full-extended.jpg" width="200"><br>Follower fully extended</td>
+<td align="center"><img src="media/pictures/follower-horizontal-extended.jpg" width="200"><br>Follower horizontal reach</td>
+</tr>
+<tr>
+<td align="center"><img src="media/pictures/follower-joints-closeup.jpg" width="200"><br>Follower joints close-up</td>
+<td align="center"><img src="media/pictures/follower-closeup-camera.jpg" width="200"><br>Follower wrist camera close-up</td>
+</tr>
+</table>
+
+*Real hardware photos (2026-08-21) of the finished leader and follower arms.*
 
 ---
 
@@ -39,8 +70,8 @@ A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based 
 ```
 hexarm/
 ├── cad/            # Mechanical design files and exports (Onshape)
+├── media/          # Hardware photos (media/pictures/)
 ├── software/       # Control, calibration, and low-level setup scripts
-├── electronics/    # Schematics and bill of materials
 └── docs/           # Technical documentation and debugging logs
 ```
 
@@ -68,10 +99,6 @@ software/
 - [Servo Comms Bring-Up — full UART/SDK debugging chronology](docs/debugging/servo-comms-debug-log.md)
 - [CAD Assembly (Onshape, public)](https://cad.onshape.com/documents/0670dbd7fb06bb7c9bf9782d/w/e043c38067500e43503b5676/e/e17080d119308b27c44a0ee6) — full parametric model, leader and follower arms modeled separately
 - ADR — [0001: compute platform selection](docs/adr/0001-compute-platform-selection.md) (Pi Zero 2W → Jetson Orin Nano Super), [0002: single-bus servo topology](docs/adr/0002-single-bus-servo-topology.md) (vs. LeRobot's two-bus default)
-
-**Still needed** (blocked on physical build details only Evan has — see Roadmap M2):
-
-- Electronics — wiring schematic, bill of materials, servo power budget
 
 ---
 
@@ -160,10 +187,7 @@ python software/control/teleop.py --hz 50
 - [x] CAD — full assembly
 - [x] Docs — hardware assembly guide
 
-### M2 — Electronics & BOM
-- [ ] Electronics — servo power budget
-- [ ] Electronics — wiring schematic
-- [ ] Electronics — bill of materials
+### M2 — Platform & Architecture Decisions
 - [x] ADR — compute platform selection
 - [x] ADR — single-bus servo topology
 
@@ -172,12 +196,6 @@ python software/control/teleop.py --hz 50
 - [x] Per-servo configuration tool (ID, baud, return delay)
 - [x] Joint-limit calibration tool
 - [x] Docs — servo protocol reference
-
-### M4 — Software: Kinematics
-- [ ] Software — forward kinematics (DH-based)
-- [ ] Software — inverse kinematics (geometric + wrist decoupling)
-- [ ] Software — joint limit enforcement
-- [ ] URDF — model creation and RViz validation
 
 ### M5 — Physical Build & Integration
 - [x] Compute — Jetson Orin Nano Super provisioned and networked
@@ -188,11 +206,10 @@ python software/control/teleop.py --hz 50
 
 ### M6 — Teleoperation & Imitation Learning
 - [x] Software — leader-follower control loop (LeRobot)
-- [ ] Software — safety limits and emergency stop
 - [x] Data — record demonstration dataset (2026-08-10, 50 episodes)
 - [x] Training — train ACT or diffusion policy
 - [x] Deploy — run policy on hardware (v3, 2026-08-21 — postmortem #10 margins confirmed fixed)
-- [ ] Demo — record demo video / GIF
+- [x] Demo — hardware photos in README (2026-08-21; video skipped by choice — recordings ran too long)
 
 ---
 
