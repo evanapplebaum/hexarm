@@ -1,0 +1,30 @@
+# Pinned dependency versions for hexarm's LeRobot environment (/data/lerobot-env,
+# Python 3.12 venv on the Jetson — see README's Software Setup / two-venv split).
+# Full story: docs/context.md, "Jetson JP7.2 reflash" session log (2026-08-04).
+#
+# NOT a one-command `pip install -r requirements.txt` — two pieces are Jetson-specific
+# and need manual steps first:
+#
+# 1. torch / torchvision / onnxruntime-gpu are Jetson wheels (cp312, CUDA 13.2,
+#    cuDNN 9), not on PyPI. Download the matching .whl files from the
+#    Shattered217/Jetson-Orin-Wheels GitHub release (7.2.0) and `pip install` them
+#    directly before anything else in this file:
+#      torch==2.12.0
+#      torchvision==0.27.0+78839c2
+#      onnxruntime-gpu==1.28.0
+#    https://github.com/Shattered217/Jetson-Orin-Wheels/releases/tag/7.2.0
+#
+# 2. lerobot is an editable install of a *locally patched* checkout, not a plain
+#    git ref. The patch widens pyproject.toml's torch/torchvision upper bounds so
+#    pip resolves the 2.12.0 wheel above — stock lerobot 0.6.1 caps at
+#    torch<2.12.0, excluding it by one release and silently falling back to a
+#    CPU-only torch 2.11.0. To reproduce:
+#      git clone https://github.com/huggingface/lerobot.git
+#      cd lerobot && git checkout 1427d35ef58ab46651dc7ef78bde81642090c861
+#      git apply /path/to/hexarm/docs/jetson-jp7.2-local.patch
+#      pip install -e ".[feetech,dataset]"
+#    Patch file: docs/jetson-jp7.2-local.patch (also carries two harmless
+#    Python-3.10-compat edits kept as-is from an earlier abandoned attempt).
+#    lerobot==0.6.1 is the version this patch was cut against.
+
+numpy==2.2.6

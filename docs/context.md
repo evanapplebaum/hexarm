@@ -6,6 +6,28 @@
 
 ---
 
+## Summary
+
+hexarm is a custom 6-DOF leader-follower robotic arm (based on SO-100/SO-101) built for hands-on robotics learning, with imitation learning via Hugging Face LeRobot. As of 2026-08-21, the project is **functionally complete**: both arms are built, calibrated, and teleoperating end-to-end, and an ACT policy trained on a re-recorded 50-episode pick-and-place dataset (v3) runs autonomously on the physical follower arm with the margin issues from an earlier run (postmortem #10) confirmed fixed. Remaining work is portfolio polish only — see [WRAPUP.md](../WRAPUP.md) (gitignored, not in the published repo).
+
+The bulk of this document is a chronological engineering journal — most of the narrative detail and incident history lives in [Concepts Covered (Learning Log)](#concepts-covered-learning-log), read top-to-bottom in date order. The most recent entry, [v3 run on hardware — postmortem #10 confirmed fixed, project functionally complete (2026-08-21)](#v3-run-on-hardware--postmortem-10-confirmed-fixed-project-functionally-complete-2026-08-21), is the current state of the project.
+
+### Contents
+
+- [AI Collaboration Style](#ai-collaboration-style)
+- [Learning Approach (methodology)](#learning-approach-methodology--agreed-2026-06-01)
+- [Project Overview](#project-overview)
+- [Hardware](#hardware)
+- [Repository Structure](#repository-structure)
+- [Software Stack](#software-stack)
+- [STS3215 Protocol Reference](#sts3215-protocol-reference)
+- [Servo Communication — RESOLVED](#servo-communication--resolved-)
+- [Setup Status](#setup-status)
+- [Key Technical Notes](#key-technical-notes)
+- [Concepts Covered (Learning Log)](#concepts-covered-learning-log) — the session-by-session history, chronological from here to the end of the doc
+
+---
+
 ## AI Collaboration Style
 
 This document is read by Claude at the start of every session. Follow these rules when working with Evan on this project:

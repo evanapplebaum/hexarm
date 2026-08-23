@@ -1,0 +1,45 @@
+diff --git a/pyproject.toml b/pyproject.toml
+index d0708023..6ff54656 100644
+--- a/pyproject.toml
++++ b/pyproject.toml
+@@ -59,8 +59,8 @@ keywords = ["lerobot", "huggingface", "robotics",  "machine learning", "artifici
+ 
+ dependencies = [
+     # Core ML
+-    "torch>=2.7,<2.12.0",
+-    "torchvision>=0.22.0,<0.27.0",
++    "torch>=2.7,<2.13.0",
++    "torchvision>=0.22.0,<0.28.0",
+     "numpy>=2.0.0,<2.3.0", # NOTE: Explicitly listing numpy helps the resolver converge faster. Upper bound imposed by opencv-python-headless.
+     "opencv-python-headless>=4.9.0,<4.14.0",
+     "Pillow>=10.0.0,<13.0.0",
+diff --git a/src/lerobot/configs/video.py b/src/lerobot/configs/video.py
+index 4b956f30..cab7925d 100644
+--- a/src/lerobot/configs/video.py
++++ b/src/lerobot/configs/video.py
+@@ -20,7 +20,9 @@ from __future__ import annotations
+ 
+ import logging
+ from dataclasses import dataclass, field
+-from typing import Any, ClassVar, Self
++from typing import Any, ClassVar
++
++from typing_extensions import Self
+ 
+ import numpy as np
+ 
+diff --git a/src/lerobot/motors/motors_bus.py b/src/lerobot/motors/motors_bus.py
+index 4688eaa7..8fc324b1 100644
+--- a/src/lerobot/motors/motors_bus.py
++++ b/src/lerobot/motors/motors_bus.py
+@@ -48,8 +48,8 @@ else:
+ from lerobot.utils.decorators import check_if_already_connected, check_if_not_connected
+ from lerobot.utils.utils import enter_pressed, move_cursor_up
+ 
+-type NameOrID = str | int
+-type Value = int | float
++NameOrID = str | int
++Value = int | float
+ 
+ logger = logging.getLogger(__name__)
+ 

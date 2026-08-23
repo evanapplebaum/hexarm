@@ -1,5 +1,8 @@
 # Hexarm
 
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![Python 3.12+](https://img.shields.io/badge/python-3.12%2B-blue.svg)](https://www.python.org/downloads/)
+
 A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation — with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework.
 
 > **Status:** ✅ Core pipeline complete. Both arms are built, calibrated, and teleoperating end-to-end. An ACT policy trained on a 50-episode pick-and-place dataset runs autonomously on the physical follower arm via a dead-man's-switch-gated control loop. Full session-by-session history lives in [docs/context.md](docs/context.md).
@@ -146,6 +149,8 @@ deactivate
 
 # Anything importing LeRobot (teleop, calibration, recording) uses the
 # separate lerobot-env venv (Python 3.12+, CUDA-linked torch build)
+# — see requirements.txt for exact pinned versions and the Jetson-specific
+# install steps (custom torch wheel + a small local LeRobot patch)
 source /data/lerobot-env/bin/activate
 
 # Run leader-follower teleoperation:
