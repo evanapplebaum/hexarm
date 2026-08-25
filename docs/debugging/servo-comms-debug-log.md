@@ -332,7 +332,7 @@ python3 setup_servo.py --current-id 9 --new-baud 1000000 --force --baud 250000
 
 - `software/control/baud_scan.py` — scans all baud rates × IDs 1–20; useful when servo baud rate is unknown
 - `software/control/ping_stress.py` — stress-test script; CSV output; `--mode reopen` or `--mode keepopen`
-- **Note:** test CSV files (`reopen.csv`, `keepopen.csv`, `ping_stress_keepopen.csv`) were committed to the repo — add these to `.gitignore`
+- **Note:** test CSV files (`reopen.csv`, `keepopen.csv`, `ping_stress_keepopen.csv`) had been committed to the repo despite a `.gitignore` rule that didn't actually match their path (`software/control/*.csv` instead of `software/low-lvl-setup/*.csv`) — the pattern was corrected; the already-tracked files are still pending removal
 
 ---
 
@@ -356,7 +356,7 @@ python3 setup_servo.py --current-id 9 --new-baud 1000000 --force --baud 250000
 
 **Symptom:** With the Phase 4 fixes in place, `raw_ping.py` worked but every SDK-based script (`ping_one.py`, `calibrate.py`, `setup_servo.py`) failed with `COMM_RX_TIMEOUT` or `COMM_RX_CORRUPT`. The bug was sticky — survived reboots, survived re-seating connectors, survived `port_handler.py` edits.
 
-This phase reframes Phase 4 entirely. The framing-error theory turned out to be wrong. Two separate problems were stacked, and one was masking the other.
+This phase reframed Phase 4 entirely. The framing-error theory turned out to be wrong. Two separate problems were stacked, and one was masking the other.
 
 ---
 
@@ -498,7 +498,7 @@ D. SDK   (PortHandler.ping): 0/5   result = COMM_RX_CORRUPT, dt = 1208ms
 
 **Three things to extract:**
 
-1. **All read patterns work cleanly.** Every variant returned a 6/6 response (`FF FF 02 02 00 FB`). Importantly, **no 5/6 cases appeared** — strong evidence that the "framing error at RC turnaround" theory of Phase 4 was misdiagnosis. The "missing first byte" pattern was getty interference all along.
+1. **All read patterns worked cleanly.** Every variant returned a 6/6 response (`FF FF 02 02 00 FB`). Importantly, **no 5/6 cases appeared** — strong evidence that the "framing error at RC turnaround" theory of Phase 4 was misdiagnosis. The "missing first byte" pattern was getty interference all along.
 
 2. **The read(1)-loop (variant C) was 1500× slower than the single-read variants.** That's because the patched `port_handler.readPort()` was set to read `length+1` bytes (`target = 7`) to "absorb a dropped leading byte." For a clean 6-byte response, there is no 7th byte — so the loop burned the full 600ms deadline waiting for it.
 
@@ -515,7 +515,7 @@ Tracing the second transaction inside `ping()`:
 3. Custom `readPort` sets `target = 7` and reads 7 bytes from the kernel: `[FF FF 02 04 00 09 00]`
 4. Resync finds `FF FF` at offset 0, returns `buf[0:length] = buf[0:6]` — **the 7th byte (`00`) is silently dropped on the floor**
 5. SDK's `rxPacket` extends `rxpacket` to 6 bytes, sees `rxpacket[PKT_LENGTH] = 0x04`, recalculates `wait_length = 4 + 3 + 1 = 8`, loops back to `readPort(2)`
-6. Kernel buffer only has 1 byte left (the `CHK`) — the other byte we needed (`00`) was consumed by step 3 and then thrown away
+6. Kernel buffer only has 1 byte left (the `CHK`) — the other needed byte (`00`) was consumed by step 3 and then thrown away
 7. After another 600ms wait, `rxpacket` has 7 bytes, `wait_length = 8`, `isPacketTimeout` fires → `COMM_RX_CORRUPT`
 
 **The "read length+1 to absorb a dropped byte" pattern is broken for any multi-transaction SDK call.** It works for single-shot reads (`ReadPos`, the first half of `ping()`), but `ping()` itself does two reads back-to-back and the stolen byte was the data the second read needed.
@@ -559,7 +559,7 @@ Servo ID to calibrate (1–12): 2
   Saved → ../config/limits.json
 ```
 
-STS3215 reports model number **777** in `ping()`. Calibration writes recorded successfully.
+STS3215 reported model number **777** in `ping()`. Calibration writes recorded successfully.
 
 ---
 
@@ -569,7 +569,7 @@ STS3215 reports model number **777** in `ping()`. Calibration writes recorded su
 
 2. **A pyserial loopback test is the cheapest UART sanity check available.** Jumper TX↔RX on the GPIO header. If the Pi can't echo its own bytes, every higher-level theory is wasted effort.
 
-3. **`dmesg | grep -iE "uart|serial|tty"` told us the answer in three lines.** `console=ttyAMA0,115200` + `serial-getty@ttyAMA0.service` was right there at boot — checking dmesg should be in the first ten things to do when a Pi UART misbehaves, not the last.
+3. **`dmesg | grep -iE "uart|serial|tty"` revealed the answer in three lines.** `console=ttyAMA0,115200` + `serial-getty@ttyAMA0.service` was right there at boot — checking dmesg should be in the first ten things to do when a Pi UART misbehaves, not the last.
 
 4. **Misdiagnoses can be self-confirming.** The Phase 4 "framing error" theory was internally consistent — every observed symptom (0/5/6, never 1–4, retry helps) had a plausible explanation. None of those explanations were right. **The cure for a confirmable theory is a falsifying experiment**: in this case, the loopback test, which collapsed the whole story in one command.
 

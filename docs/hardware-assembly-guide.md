@@ -77,7 +77,7 @@ Each STS3215 servo ships with 5× M3 and 4× M2 screws.
 ## Workspace Setup — Critical for Data Collection
 
 This matters as much as the mechanical assembly itself. After training begins,
-if the captured scene changes, the robot may get 'confused' and act unpredictably.
+if the captured scene changes, the trained policy may fail unpredictably.
 
 - **Clamp/screw both arm bases securely to a table** (a foldable table is fine; 
   that's what's in use here). A free-standing base isn't enough: the arm's

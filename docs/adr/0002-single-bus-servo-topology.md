@@ -6,8 +6,8 @@
 
 LeRobot's built-in leader-follower examples assume one port per arm: a
 `Teleoperator` (leader) and a `Robot` (follower) are constructed as two
-independent objects, each normally opening its own serial port. hexarm has
-one Waveshare Bus Servo Adapter (A) in active use — a second board is on
+independent objects, each normally opening its own serial port. hexarm had
+one Waveshare Bus Servo Adapter (A) in active use — a second board was on
 hand but not wired in.
 
 Two ways to reconcile that with LeRobot's two-bus assumption:

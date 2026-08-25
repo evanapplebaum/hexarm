@@ -14,7 +14,7 @@ Consolidated log of hardware/software incidents encountered while building hexar
 
 **Root cause:** The Waveshare Bus Servo Adapter (A) labels its UART pins from the *host's* perspective, not the device's. Standard UART convention crosses TX↔RX between two devices; this board's silkscreen means "connect the host's TX wire to the pin labeled TX," i.e. straight-through wiring (TX→TX, RX→RX). Every wiring attempt had used the standard crossed convention.
 
-**Fix:** Rewire straight-through (TX→TX, RX→RX, GND→GND) per the corrected understanding.
+**Fix:** Rewired straight-through (TX→TX, RX→RX, GND→GND) per the corrected understanding.
 
 **Lesson:** Verify a third-party board's pin-labeling convention before assuming standard UART crossing. A broadcast command (ID 0xFE, no response expected) is a cheap way to test "is the data line reaching the bus at all" without needing to know a servo's ID first.
 
@@ -48,7 +48,7 @@ Consolidated log of hardware/software incidents encountered while building hexar
 
 **Root cause:** `Present_Position` is actually `(raw_encoder − Homing_Offset) mod 4096` — the encoder's reporting *seam* (where the value jumps 4095↔0) is not fixed to the magnet's physical zero; it sits wherever `raw = Homing_Offset`. Homing at the arc's endpoint (rather than its center) placed that seam *inside* the joint's traveled range, so one physical stop legitimately needed to report a negative position — which the unsigned EPROM field can't hold. The `-827` error was a symptom of a bad homing choice, not evidence that negative ranges are unsupported in general.
 
-**Fix:** Home at the arc's *midpoint* instead of an endpoint. This throws the seam exactly 2048 counts away from center — the middle of the joint's *untraveled* ("dead") gap — so any travel range under 360° never crosses it. Rewrote `calibrate_lerobot.py` around the library's own primitives in the correct order: `configure_motors()` (clears the Phase register bit so position reporting is clean single-turn mod-4096) → `set_half_turn_homings()` (homes at the measured center) → `record_ranges_of_motion()` (now records a clean, contiguous, all-positive range).
+**Fix:** Homed at the arc's *midpoint* instead of an endpoint. This throws the seam exactly 2048 counts away from center — the middle of the joint's *untraveled* ("dead") gap — so any travel range under 360° never crosses it. Rewrote `calibrate_lerobot.py` around the library's own primitives in the correct order: `configure_motors()` (clears the Phase register bit so position reporting is clean single-turn mod-4096) → `set_half_turn_homings()` (homes at the measured center) → `record_ranges_of_motion()` (now records a clean, contiguous, all-positive range).
 
 **Lesson:** SO-100/LeRobot doesn't special-case wrap-around joints — it *avoids* the seam entirely via home-at-center, so no negative EPROM write is ever needed for a physically valid joint. Understanding the seam as something that *moves* with the chosen homing offset (rather than being fixed to the magnet) was the key insight that made the fix obvious in hindsight.
 
@@ -58,7 +58,7 @@ Consolidated log of hardware/software incidents encountered while building hexar
 
 **Dates:** started 2026-07-15 · **Severity:** Moderate
 
-**Symptom:** During teleoperation, the leader arm's gripper servo runs torque-disabled ("limp mode") so Evan can manipulate the claw by hand. Rotating the gripper bars by hand under limp mode takes surprisingly high force due to the servo's internal gearbox drag, and PLA gripper parts aren't strong enough to withstand the bending moment.
+**Symptom:** During teleoperation, the leader arm's gripper servo runs torque-disabled ("limp mode") so the claw can be manipulated by hand. Rotating the gripper bars by hand under limp mode takes surprisingly high force due to the servo's internal gearbox drag, and PLA gripper parts aren't strong enough to withstand the bending moment.
 
 **Investigation so far:**
 - **Attempt 1 — thick squeeze bars:** printed two thicker bars to squeeze directly. Functional but awkward to hold while simultaneously operating the other 5 joints one-handed.

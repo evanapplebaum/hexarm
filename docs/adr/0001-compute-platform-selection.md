@@ -10,21 +10,21 @@ was headed:
 
 - **UART availability.** The Pi Zero 2W exposes only one hardware UART
   (`ttyAMA0` on GPIO 14/15, after `disable-bt` frees it from the Bluetooth
-  modem). hexarm needs to drive two arms; a single-bus, single-UART design was
+  modem). hexarm needed to drive two arms; a single-bus, single-UART design was
   possible in principle (see [ADR 0002](0002-single-bus-servo-topology.md)),
   but a second, software-UART, or USB-adapter path would have been needed for
   any two-bus layout, and none of those options were resolved — tracked as TBD
   in `config.py` before that file was retired.
-- **LeRobot's compute requirements.** The project's end goal is imitation
+- **LeRobot's compute requirements.** The project's end goal was imitation
   learning via Hugging Face LeRobot — recording demonstrations and then
-  training/running an ACT (or diffusion) policy. That means a real CUDA-capable
-  GPU for training, and Python ≥3.12 for current LeRobot. A Pi Zero 2W has
+  training/running an ACT (or diffusion) policy. That meant a real CUDA-capable
+  GPU for training, and Python ≥3.12 for current LeRobot. A Pi Zero 2W had
   neither — it was viable for teleoperation (pure servo bus I/O) but never for
   the training/inference half of the project.
 
 ## Decision
 
-Retire the Pi Zero 2W (2026-05-26) in favor of an NVIDIA Jetson Orin Nano
+The Pi Zero 2W was retired (2026-05-26) in favor of an NVIDIA Jetson Orin Nano
 Super: onboard CUDA GPU, enough compute to train and run an ACT policy
 locally, and a full Linux userspace instead of a GPIO-constrained embedded
 board.

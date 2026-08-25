@@ -1,3 +1,10 @@
+"""
+torque_off.py — Disable torque on one or more STS3215 servos.
+
+Usage (from hexarm root):
+  python software/control/torque_off.py --all
+"""
+
 import os
 import sys
 import argparse
@@ -5,9 +12,6 @@ import readchar
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), ".."))
 
-""" Paste into terminal @ data/hexarm/
-python software/control/torque_off.py --all
-"""
 from scservo_sdk import PortHandler, sms_sts, COMM_SUCCESS, SMS_STS_TORQUE_ENABLE
 
 DEFAULT_PORT = "/dev/ttyACM0"

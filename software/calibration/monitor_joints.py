@@ -191,7 +191,6 @@ def main() -> None:
 
             # Brief pause so user can read feedback, then resume display
             time.sleep(0.8)
-            first_draw[0] = True
             paused.clear()
             thread = threading.Thread(target=display_loop, daemon=True)
             thread.start()

@@ -9,7 +9,7 @@ trajectory doesn't jump on replay. Torque is then disabled on the leader
 only (the follower stays enabled, holding neutral); move the leader by hand
 while this records its Present_Position (normalized 0–100) at a fixed rate.
 After a keypress, a 5-second countdown gives you time to get in position;
-recording then runs for a fixed 5-second window.
+recording then runs for a fixed 10-second window.
 
 Usage (from hexarm root, conda lerobot env):
   conda activate lerobot

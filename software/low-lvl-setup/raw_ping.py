@@ -12,11 +12,9 @@ close. This causes read() to return immediately with 0 bytes on subsequent
 runs. Fix: set VMIN=6 via termios after opening the port so read(6) blocks
 until all 6 bytes arrive.
 
-Turnaround framing error: at the TX→RX bus turnaround, the servo's line-driver
-turn-on transient can corrupt the start bit of the first response byte. The
-PL011 flags a framing error and the Linux tty layer silently discards the byte.
-Fix: resync parser that accepts a response missing the leading 0xFF, validated
-by checksum. Retry up to MAX_RETRIES times on a completely empty response
+Resync fallback: if the leading 0xFF is dropped before this script's read()
+sees it, a checksum-validated resync parser recovers the rest of the packet
+without a retry. Retry up to MAX_RETRIES times on a completely empty response
 (means the outgoing ping was corrupted and the servo never replied).
 
 Usage (Jetson via USB Waveshare board):
@@ -57,8 +55,8 @@ def parse_response(raw):
     Resync parser for a STS3215 ping response.
 
     Tries FF FF header first (clean case). If not found, tries a lone FF
-    header — this handles the case where the leading 0xFF was silently
-    discarded by the tty layer due to a framing error at the bus turnaround.
+    header — this handles the case where the leading 0xFF was dropped
+    before it could be read.
 
     Checksum is the only real integrity guarantee: ~(ID + LEN + ERR) & 0xFF.
 
@@ -80,7 +78,7 @@ def parse_response(raw):
             if len(pkt) >= 5:
                 sid, length, err, chk = pkt[1], pkt[2], pkt[3], pkt[4]
                 if ((~(sid + length + err)) & 0xFF) == chk:
-                    return sid, err, "resynced — first 0xFF dropped by framing error"
+                    return sid, err, "resynced — leading 0xFF was dropped before read"
 
     return None
 

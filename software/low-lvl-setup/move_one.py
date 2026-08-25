@@ -111,7 +111,5 @@ def main():
     port_handler.closePort()
 
 
-# python sets __name__ == "__main__" only when this file is run directly,
-# not when it's imported — guards against accidental execution on import
 if __name__ == "__main__":
     main()

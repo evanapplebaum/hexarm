@@ -80,7 +80,7 @@ build/
 # CSV logs produced by ping_stress.py and similar diagnostic scripts.
 # Useful while debugging, but not artifacts to share.
 ping_stress_*.csv
-software/control/*.csv
+software/low-lvl-setup/*.csv
 
 # Local Python sessions and caches that some shells leave behind
 .python_history

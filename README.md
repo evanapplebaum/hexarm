@@ -5,7 +5,7 @@
 
 A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based on the open-source [SO-100](https://github.com/TheRobotStudio/SO-ARM100) design. Built for hands-on experience in mechanical design, embedded systems, and robot teleoperation, with imitation learning via the [LeRobot](https://github.com/huggingface/lerobot) framework.
 
-> **Status:** ✅ Core pipeline complete. Both arms are built, calibrated, and teleoperating end-to-end. An ACT policy trained on a 50-episode pick-and-place dataset runs autonomously on the physical follower arm via a dead-man's-switch-gated control loop. Full session-by-session history lives in [docs/context.md](docs/context.md).
+> **Status:** ✅ Core pipeline complete. Both arms were built, calibrated, and made to teleoperate end-to-end. An ACT policy trained on a 50-episode pick-and-place dataset was run autonomously on the physical follower arm via a dead-man's-switch-gated control loop. Full session-by-session history lives in [docs/context.md](docs/context.md).
 
 ---
 
