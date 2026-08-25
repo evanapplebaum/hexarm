@@ -17,13 +17,13 @@ A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based 
 | Degrees of Freedom | 6 per arm (5 + gripper) |
 | Actuators | FEETECH STS3215 (6× per arm, 12 total) |
 | Servo Driver | Waveshare Bus Servo Adapter (A) — half-duplex TTL, USB host |
-| Compute | NVIDIA Jetson Orin Nano Super (JetPack 6.2, Ubuntu 22.04) |
+| Compute | NVIDIA Jetson Orin Nano Super (JetPack 7.2, Ubuntu 24.04) |
 | Bus interface | USB CDC-ACM on `/dev/ttyACM0` at 1 Mbps |
 | Bus topology | Single bus — both arms (follower IDs 1–6, leader IDs 7–12) |
 | Framework | [LeRobot](https://github.com/huggingface/lerobot) (`feetech` extra, editable install) |
-| CAD Tool | [Onshape](https://cad.onshape.com/documents/0670dbd7fb06bb7c9bf9782d/w/e043c38067500e43503b5676/e/e17080d119308b27c44a0ee6) (public) |
-| Reach | TBD |
-| Payload | TBD |
+| CAD Tool | [Onshape](https://cad.onshape.com) (public) |
+| Reach | 433 mm |
+| Payload | 1.2 kg @ worst case scenario (maximum reach) |
 
 ---
 
@@ -71,7 +71,7 @@ A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based 
 ```
 hexarm/
 ├── cad/            # Mechanical design files and exports (Onshape)
-├── media/          # Hardware photos (media/pictures/)
+├── media/          # Hardware photos of robots & workspace (media/pictures/)
 ├── software/       # Control, calibration, and low-level setup scripts
 └── docs/           # Technical documentation and debugging logs
 ```
@@ -107,25 +107,23 @@ software/
 
 ### Hardware
 
-- NVIDIA Jetson Orin Nano Super (JetPack 6.2, Ubuntu 22.04 / aarch64)
+- NVIDIA Jetson Orin Nano Super (JetPack 7.2, Ubuntu 24.04 / aarch64)
 - 1× Waveshare Bus Servo Adapter (A) — set to USB-Servo mode
 - 12× FEETECH STS3215 servos (both arms daisy-chained on one bus)
-- 12 V DC supply for the servo bus (via the board's barrel jack)
+- 12 V DC supply for the servo bus (via the board's barrel jack) - minimum 5A
+- 19 V DC supply for Jetson Orin Nano Super (comes with the Dev Kit)
 
 ### Physical Hookup / Power
-
-There are **two separate power adapters** — both plug into standard AC wall sockets, but they are **not interchangeable**:
 
 | Adapter | Output | Powers | Connector |
 |---|---|---|---|
 | Jetson power supply | 19V, 2.37A max | Jetson Orin Nano Super | Jetson's barrel jack |
 | Servo bus power supply | 12V, 5A max | Servo bus (both arms) | Waveshare board's barrel jack |
 
-> **⚠️ Do not cross these.** Plugging the Jetson's 19V adapter into the Waveshare board's barrel jack will fry it (it's only rated for 12V). Double-check which brick you're holding before plugging in.
 
 Full connection sequence:
 
-1. Daisy-chain both arms' servo JST connectors into the **one** Waveshare Bus Servo Adapter (A) that's in use (the second board on hand is a spare — not wired in for the current single-bus setup).
+1. Daisy-chain both arms' servo JST connectors into the **one** Waveshare Bus Servo Adapter (A) that's in use - 2 JST ports on the adapter; one per arm.
 2. Confirm the board's physical mode switch is set to **USB-Servo**. 
 3. Plug the 12V/5A adapter into the Waveshare board's barrel jack (servo bus power).
 4. Plug the 19V/2.37A adapter into the Jetson's barrel jack (compute power).
@@ -140,6 +138,9 @@ git clone https://github.com/evanapplebaum/hexarm.git
 cd hexarm
 
 # Raw SDK diagnostics only need pyserial — use the hexarm .venv
+# Note that these 'low-level' scripts were created to modify servo registers or isolate issues while debugging hardware.
+# Also note that ALL STS3215 SERVOES SHIP WITH ID = 1. Attempts to ping 2 servoes with the same ID at the same time will fail (both servoes will attempt to respond simultaneously --> jumbled data)
+
 source .venv/bin/activate
 python software/low-lvl-setup/ping_one.py --id 1     # via the scservo_sdk path
 python software/low-lvl-setup/raw_ping.py --id 1     # raw pyserial diagnostic
@@ -152,7 +153,7 @@ deactivate
 source /data/lerobot-env/bin/activate
 
 # Run leader-follower teleoperation:
-python software/control/teleop.py --hz 50
+python software/control/teleop.py
 ```
 
 > **Note:** LeRobot is not installable on Intel Mac (no x86_64 torch build). For Mac-side
@@ -166,7 +167,7 @@ python software/control/teleop.py --hz 50
 
 | Task | Status |
 |---|---|
-| Jetson Orin Nano Super flashed (JetPack 6.2) + SSH | ✅ Done |
+| Jetson Orin Nano Super flashed (JetPack 7.2) + SSH | ✅ Done |
 | Servo bus over USB (`/dev/ttyACM0`, CDC-ACM) | ✅ Done |
 | Servo communication verified (raw pyserial + scservo_sdk) | ✅ Done |
 | LeRobot installed on Jetson (`pip install -e ".[feetech]"`) | ✅ Done |
@@ -200,14 +201,14 @@ python software/control/teleop.py --hz 50
 - [x] Joint-limit calibration tool
 - [x] Docs — servo protocol reference
 
-### M5 — Physical Build & Integration
+### M4 — Physical Build & Integration
 - [x] Compute — Jetson Orin Nano Super provisioned and networked
 - [x] Software — LeRobot installed and verified
 - [x] Build — print and source all parts
 - [x] Build — assemble both arms
 - [x] Integration — servo IDs assigned, both arms on one bus
 
-### M6 — Teleoperation & Imitation Learning
+### M5 — Teleoperation & Imitation Learning
 - [x] Software — leader-follower control loop (LeRobot)
 - [x] Data — record demonstration dataset (2026-08-10, 50 episodes)
 - [x] Training — train ACT or diffusion policy
