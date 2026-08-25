@@ -41,10 +41,10 @@ in the shared dict — see `build_bus()` in `teleop.py` and `record_dataset.py`.
   display/event backend that doesn't exist over headless SSH; hexarm reuses
   the raw-termios reading pattern from `go_neutral.py --diagnostic` instead).
 - **One shared neutral pose, not two.** Because both arms are physically
-  identical (`drive_mode=0`), driving both to the *same* normalized values
+  identical (with respect to joint limits), driving both to the *same* normalized values
   keeps them aligned — this is what `record_neutral.py`/`go_neutral.py`
-  rely on (capture the follower's pose once, apply it to both arms). Two
-  independently hand-posed neutrals were never bit-identical and caused the
+  rely on (capture the follower's pose once; apply it to both arms). Two
+  independently hand-posed neutrals were never perfectly identical and caused the
   follower to snap the instant leader torque dropped at teleop startup —
   fixed 2026-08-01, see `docs/context.md`'s Neutral Pose Unification section.
 - **Every `sync_read`/`sync_write` transaction now moves data for both arms
@@ -57,7 +57,3 @@ in the shared dict — see `build_bus()` in `teleop.py` and `record_dataset.py`.
   after an unretried write crashed a session on one missed byte
   (2026-08-10) — a single-bus design makes bus-level reliability shared
   infrastructure for both arms at once, not an isolated per-arm concern.
-- The second Waveshare board stays on hand as a documented fallback if the
-  single-bus approach ever needs revisiting (e.g. if bus bandwidth becomes a
-  bottleneck at higher control rates), but nothing in the current codebase
-  depends on it.
