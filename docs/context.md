@@ -8,7 +8,7 @@
 
 ## Summary
 
-hexarm is a custom 6-DOF leader-follower robotic arm (based on SO-100/SO-101) built for hands-on robotics learning, with imitation learning via Hugging Face LeRobot. As of 2026-08-21, the project is **functionally complete**: both arms are built, calibrated, and teleoperating end-to-end, and an ACT policy trained on a re-recorded 50-episode pick-and-place dataset (v3) runs autonomously on the physical follower arm with the margin issues from an earlier run (postmortem #10) confirmed fixed. Remaining work is portfolio polish only — see [WRAPUP.md](../WRAPUP.md) (gitignored, not in the published repo).
+hexarm is a custom 6-DOF leader-follower robotic arm (based on SO-100/SO-101) built for hands-on robotics learning, with imitation learning via Hugging Face LeRobot. As of 2026-08-21, the project is **complete**: both arms are built, calibrated, and teleoperating end-to-end, and an ACT policy trained on a re-recorded 50-episode pick-and-place dataset (v3) runs autonomously on the physical follower arm with the margin issues from an earlier run (postmortem #10) confirmed fixed. 
 
 The bulk of this document is a chronological engineering journal — most of the narrative detail and incident history lives in [Concepts Covered (Learning Log)](#concepts-covered-learning-log), read top-to-bottom in date order. The most recent entry, [v3 run on hardware — postmortem #10 confirmed fixed, project functionally complete (2026-08-21)](#v3-run-on-hardware--postmortem-10-confirmed-fixed-project-functionally-complete-2026-08-21), is the current state of the project.
 
@@ -172,7 +172,6 @@ hexarm/
 │   │   ├── overhead camera mount/      ← overhead tower/mount custom parts
 │   │   └── sts3215_servo_reference.step ← ONE copy of the vendor STS3215 servo model (same part instanced 6×/arm in Onshape; only one kept here, not 12 near-duplicates)
 │   └── renders/                        ← leader_arm.png, follower_arm.png — isometric assembly screenshots, used in README Demo section (added 2026-08-09)
-├── electronics/                        ← empty (schematics/ subfolder has no files); a wiring schematic + BOM were considered and dropped (2026-08-21, Evan's call — not worth it for the portfolio), not left as planned work
 ├── scripts/
 │   └── setup-github.sh
 ├── outputs/train/                      ← local lerobot-train run outputs (checkpoints), gitignored
