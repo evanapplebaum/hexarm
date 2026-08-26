@@ -9,6 +9,26 @@ A custom anthropomorphic 6-DOF leader-follower robotic arm system roughly based 
 
 ---
 
+## Demo
+
+<p align="center">
+  <img src="media/autonomous.gif" width="520" alt="ACT policy running autonomously on the follower arm">
+</p>
+
+**Autonomous policy.** An ACT policy trained on 50 teleoperated demonstrations, running
+on the follower arm with no human input: approach, grasp, transport, release. Clip is
+1.25× real time.
+
+<p align="center">
+  <img src="media/teleop.gif" width="260" alt="Teleoperation: leader arm driven by hand, follower mirroring">
+</p>
+
+**Teleoperation.** The leader arm (bottom) is backdriven by hand; the follower (top)
+mirrors it at 50 Hz over a single half-duplex servo bus. This is how the training
+demonstrations were recorded.
+
+---
+
 ## Overview
 
 | Property | Value |
