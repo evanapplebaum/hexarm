@@ -96,7 +96,7 @@ class _RawTerminal:
 def at_neutral(bus: FeetechMotorsBus, neutral: dict[str, float],
                tolerance: float = POSITION_TOLERANCE) -> bool:
     """True if every joint in `neutral` is already within `tolerance` of its target."""
-    positions = bus.sync_read("Present_Position", normalize=True)
+    positions = bus.sync_read("Present_Position", normalize=True, num_retry=3)
     return all(abs(float(positions[n]) - target) <= tolerance for n, target in neutral.items())
 
 
@@ -130,7 +130,7 @@ def build_motors(arm: str, names: list[str], prefix: str = "") -> dict[str, Moto
 def safe_enable_torque(bus: FeetechMotorsBus) -> None:
     """Write Goal_Position = Present_Position before enabling torque.
     Prevents servos from snapping to a stale goal on enable."""
-    positions = bus.sync_read("Present_Position", normalize=False)
+    positions = bus.sync_read("Present_Position", normalize=False, num_retry=3)
     for name, pos in positions.items():
         bus.write("Goal_Position", name, int(float(pos)), normalize=False, num_retry=3)
     bus.enable_torque()
@@ -154,6 +154,15 @@ def go_neutral(
                       while SPACE is held; releasing it freezes the arms in
                       place immediately. 'q' aborts (also freezes in place).
     """
+    # Discard any stale bytes sitting in the input buffer. A caller that just
+    # ran a long burst of broadcast sync_writes with no reads in between (e.g.
+    # run_startup_sequence's playback loop) never drains the half-duplex
+    # bus's echoed TX bytes — left alone, they desync the framing of the very
+    # next sync_read here ("Incorrect status packet") even though nothing is
+    # actually wrong with the servos. port_handler.clearPort() does NOT do
+    # this — it's ser.flush(), an output-side flush, not an input reset.
+    bus.port_handler.ser.reset_input_buffer()
+
     active_joints = list(neutral.keys())
     timeout = int(4096 / velocity) + 5  # generous: full range at chosen speed + 5s
 
@@ -191,21 +200,21 @@ def go_neutral(
                     bus.sync_write("Goal_Position", neutral, normalize=True)
                 else:
                     # Not held (or not yet pressed) — freeze exactly where we are.
-                    current = bus.sync_read("Present_Position", normalize=False)
+                    current = bus.sync_read("Present_Position", normalize=False, num_retry=3)
                     bus.sync_write(
                         "Goal_Position",
                         {n: int(float(current[n])) for n in active_joints},
                         normalize=False,
                     )
 
-            positions = bus.sync_read("Present_Position", normalize=True)
+            positions = bus.sync_read("Present_Position", normalize=True, num_retry=3)
             if all(abs(float(positions[n]) - neutral[n]) <= POSITION_TOLERANCE
                    for n in active_joints):
                 break
             time.sleep(1 / POLL_HZ)
         else:
             # Loop completed without break — timed out
-            positions = bus.sync_read("Present_Position", normalize=True)
+            positions = bus.sync_read("Present_Position", normalize=True, num_retry=3)
             stalled = [n for n in active_joints
                        if abs(float(positions[n]) - neutral[n]) > POSITION_TOLERANCE]
             print(f"WARNING: timed out after {timeout}s. "
@@ -215,7 +224,7 @@ def go_neutral(
             raw_term.__exit__(None, None, None)
 
     if aborted:
-        current = bus.sync_read("Present_Position", normalize=False)
+        current = bus.sync_read("Present_Position", normalize=False, num_retry=3)
         bus.sync_write(
             "Goal_Position",
             {n: int(float(current[n])) for n in active_joints},
@@ -232,7 +241,7 @@ def go_neutral(
         bus.write("Acceleration",           name, 0, normalize=False, num_retry=3)
 
     print(f"Done ({elapsed:.2f}s). Final positions:")
-    final = bus.sync_read("Present_Position", normalize=True)
+    final = bus.sync_read("Present_Position", normalize=True, num_retry=3)
     for name in active_joints:
         print(f"  {name:<16}  {float(final[name]):.1f}  (target {neutral[name]:.1f})")
 

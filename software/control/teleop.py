@@ -23,8 +23,8 @@ Prerequisites:
   - Startup sequence recorded  (software/config/startup_sequence.json,
     via set_startup_sequence.py)
 
-Usage (from hexarm root, conda lerobot env):
-  conda activate lerobot
+Usage (from hexarm root, lerobot env):
+  source /data/lerobot-env/bin/activate
   python software/control/teleop.py
 
 Ctrl-C to stop. Torque is disabled on exit.
@@ -39,6 +39,7 @@ from pathlib import Path
 # Add repo root (hexarm/) to path — NOT software/, which would shadow the
 # pip-installed scservo_sdk with our local copy and break LeRobot imports.
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent.parent))
+from software.calibration.go_neutral import go_neutral  # noqa: E402
 from software.calibration.run_startup_sequence import run_startup_sequence  # noqa: E402
 
 from lerobot.motors.feetech import FeetechMotorsBus
@@ -153,12 +154,14 @@ def main() -> None:
                         help=f"Serial port (default: {DEFAULT_PORT})")
     parser.add_argument("--hz",   type=int, default=DEFAULT_HZ,
                         help=f"Control loop rate in Hz (default: {DEFAULT_HZ})")
+    parser.add_argument("--nostartseq", action="store_true",
+                        help="Skip the recorded startup-sequence choreography; go straight to neutral.")
     args = parser.parse_args()
 
     cal_follower = load_json(CONFIG_DIR / "calibration_follower.json")
     cal_leader   = load_json(CONFIG_DIR / "calibration_leader.json")
     neutral      = load_json(CONFIG_DIR / "neutral.json")
-    sequence     = load_json(CONFIG_DIR / "startup_sequence.json")
+    sequence     = None if args.nostartseq else load_json(CONFIG_DIR / "startup_sequence.json")
 
     bus = build_bus(args.port, cal_follower, cal_leader)
     bus.connect()
@@ -172,7 +175,10 @@ def main() -> None:
     # normalized targets on both — see module docstring.
     neutral_all = {f"follower_{k}": v for k, v in neutral.items()}
     neutral_all.update({f"leader_{k}": v for k, v in neutral.items()})
-    run_startup_sequence(bus, neutral_all, sequence)
+    if args.nostartseq:
+        go_neutral(bus, neutral_all)
+    else:
+        run_startup_sequence(bus, neutral_all, sequence)
 
     # Drop leader torque — operator moves it freely from here
     bus.disable_torque(motors=LEADER_NAMES)
